@@ -7,14 +7,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Database } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Database, FileText } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,9 +87,21 @@ export default async function CompetitorsPage() {
                         key={row.id}
                         className="border-zinc-800 transition-colors hover:bg-zinc-900/50"
                       >
-                        {/* Added break-words and whitespace-normal to prevent stretching */}
-                        <TableCell className="break-words py-4 pl-6 align-top font-medium text-zinc-200 whitespace-normal">
-                          {row.competitor_name}
+                        <TableCell className="break-words py-4 pl-6 align-top whitespace-normal">
+                          <div className="flex flex-col gap-1">
+                            <span className="font-medium text-zinc-200">
+                              {row.competitor_name}
+                            </span>
+                            {/* NEW: Display the PDF name subtly below the competitor name */}
+                            {row.pdf_name && (
+                              <span className="flex items-center text-xs text-zinc-500 font-normal">
+                                <FileText className="mr-1.5 h-3 w-3 shrink-0" />
+                                <span className="truncate" title={row.pdf_name}>
+                                  {row.pdf_name}
+                                </span>
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="break-words py-4 align-top text-zinc-300 whitespace-normal">
                           {row.feature_name}
