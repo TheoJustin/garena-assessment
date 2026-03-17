@@ -71,28 +71,31 @@ export default function UploadPage() {
     }
   };
 
-  // Step 2: Confirm and send SQL to Postgres Docker
+  // Step 2: Confirm and send SQL to Postgres Docker via Next.js API
   const handleConfirmSubmit = async () => {
     if (!generatedSql) return;
 
     setIsSubmitting(true);
     try {
-      // Send the complete, original SQL string to your endpoint
-      console.log('Submitting to Postgres:', generatedSql);
+      console.log('Submitting to Postgres via API...');
 
-      // TODO: Replace with your actual Postgres submission endpoint
-      // const response = await fetch('http://localhost:8000/execute-sql', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ sql: generatedSql }),
-      // });
+      const response = await fetch('/api/execute-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: generatedSql }),
+      });
 
-      // if (response.ok) router.push('/chat');
-
-      // Mocking DB delay
-      setTimeout(() => router.push('/chat'), 1000);
+      if (response.ok) {
+        // Success! Move to the chat interface
+        router.push('/chat');
+      } else {
+        const errorData = await response.json();
+        console.error('SQL Execution failed:', errorData);
+        alert(`Failed to execute SQL: ${errorData.details || errorData.error}`);
+      }
     } catch (error) {
       console.error('Database insertion failed', error);
+      alert('Network error while trying to reach the database endpoint.');
     } finally {
       setIsSubmitting(false);
     }
