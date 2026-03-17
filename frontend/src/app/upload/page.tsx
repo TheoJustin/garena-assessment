@@ -26,7 +26,7 @@ export default function UploadPage() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/process-pdf', {
+      const response = await fetch('http://localhost:8000/process-pdf', {
         method: 'POST',
         body: formData,
       });
