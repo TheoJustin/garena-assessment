@@ -71,7 +71,7 @@ async def process_pdf(file: UploadFile = File(...)):
         You are an expert Data Engineer. Extract competitor analysis data from the provided text.
         
         Rules:
-        1. Translate all extracted values into Indonesian.
+        1. Extract all values in their original English language. Do not translate them.
         2. If a field is missing, leave it as null.
         3. If a competitor has multiple distinct features, create a separate entry for each feature.
 
