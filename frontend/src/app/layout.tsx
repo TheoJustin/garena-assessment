@@ -51,6 +51,12 @@ export default function RootLayout({
               >
                 Data
               </Link>
+              <Link
+                href="/rag-chat"
+                className="text-muted-foreground transition-colors hover:text-foreground"
+              >
+                RAG Chat
+              </Link>
             </div>
           </div>
         </nav>
