@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -14,9 +15,11 @@ export default function UploadPage() {
     <div className="flex h-[75vh] items-center justify-center">
       <Card className="w-full max-w-md border-zinc-800 bg-zinc-950/50 shadow-none">
         <CardHeader className="text-center">
-          <CardTitle className="text-xl">Upload Document</CardTitle>
-          <CardDescription>
-            Select a PDF file to begin analysis.
+          <CardTitle className="text-xl text-zinc-100">
+            Upload Document
+          </CardTitle>
+          <CardDescription className="text-zinc-500">
+            Select a PDF to parse into the SQL database.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
@@ -36,9 +39,11 @@ export default function UploadPage() {
               className="hidden"
             />
           </label>
-          <Button className="w-full bg-zinc-100 text-zinc-900 hover:bg-zinc-200">
-            Upload & Continue
-          </Button>
+          <Link href="/chat" className="w-full">
+            <Button className="w-full bg-zinc-100 text-zinc-900 hover:bg-zinc-200">
+              Extract to SQL & Continue
+            </Button>
+          </Link>
         </CardContent>
       </Card>
     </div>
