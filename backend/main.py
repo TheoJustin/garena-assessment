@@ -1,7 +1,8 @@
 import os
+from typing import List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.prompts import PromptTemplate
@@ -20,7 +21,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic model for the structured response
+# --- 1. Pydantic Models for LLM Extraction ---
+class FeatureAnalysis(BaseModel):
+    competitor_name: str = Field(description="Company or product name.")
+    feature_name: str = Field(description="Specific feature, service, or functionality.")
+    price: Optional[str] = Field(default=None, description="Cost or pricing model. Leave null if not mentioned.")
+    advantages: Optional[str] = Field(default=None, description="Key strengths or pros.")
+    disadvantages: Optional[str] = Field(default=None, description="Key weaknesses or cons.")
+
+class ExtractionResult(BaseModel):
+    results: List[FeatureAnalysis] = Field(description="List of extracted competitor features.")
+
+# --- 2. API Response Model ---
 class SQLResponse(BaseModel):
     sql: str
 
@@ -30,14 +42,13 @@ async def process_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File must be a PDF")
 
     try:
-        # 1. Save uploaded file to a temporary location 
-        # (Python's PyPDFLoader usually requires a file path)
+        # Save uploaded file to a temporary location 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             content = await file.read()
             tmp.write(content)
             tmp_path = tmp.name
 
-        # 2. Load and extract text
+        # Load and extract text
         loader = PyPDFLoader(tmp_path)
         docs = loader.load()
         pdf_text = "\n".join([doc.page_content for doc in docs])
@@ -45,42 +56,24 @@ async def process_pdf(file: UploadFile = File(...)):
         # Cleanup temp file
         os.remove(tmp_path)
 
-        # 3. Initialize LLM
-        # Ensure OPENAI_API_KEY is set in your environment variables
+        # Initialize LLM
         llm = ChatOpenAI(
             model="gpt-4o",
             temperature=0
         )
 
-        # 4. Define the Prompt
+        # Bind the Pydantic model to the LLM to force JSON output
+        structured_llm = llm.with_structured_output(ExtractionResult)
+
+        # Define the simplified Prompt 
+        # (We no longer need extreme SQL rules because Pydantic handles the structure)
         template = """
-        You are an expert Data Engineer and SQL Architect. Your task is to extract competitor analysis data from the provided text and convert it directly into raw SQL INSERT statements.
-
-        <database_schema>
-        Table Name: competitor_analysis
-        Columns:
-        - competitor_name (VARCHAR): Company or product name.
-        - feature_name (VARCHAR): Specific feature, service, or functionality.
-        - price (VARCHAR): Cost or pricing model.
-        - advantages (TEXT): Key strengths or pros.
-        - disadvantages (TEXT): Key weaknesses or cons.
-        </database_schema>
-
-        <strict_rules>
-        1. RAW OUTPUT ONLY: Output absolutely nothing except the SQL INSERT statements. Do NOT wrap the output in ```sql, ```, or any markdown code blocks. No explanations, no greetings.
-        2. ESCAPE QUOTES: You MUST escape any single quotes in the extracted text by doubling them (e.g., change "O'Reilly" to 'O''Reilly' or "Promo Jum'at" to 'Promo Jum''at') to prevent SQL syntax errors.
-        3. MISSING DATA (NULL): If a field (like price or disadvantages) is not mentioned in the text, use the SQL keyword NULL (without quotes). Do NOT use the string 'NULL', 'N/A', or 'Tidak disebutkan'.
-        4. ROW GRANULARITY: If a competitor has multiple distinct features, generate a separate INSERT statement for EACH feature.
-        5. PREVENT ANY SQL INJECTION: SQL Injections and all the commands for security issues you will need to parse in before making it into an sql query itself.
-        </strict_rules>
-
-        <examples>
-        -- Example 1: Standard row with all data present
-        INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantages, disadvantages) VALUES ('TechCorp', 'Analisis Otomatis', 'Rp 1.500.000/bulan', 'Sangat cepat dan akurat', 'Antarmuka sulit dipahami pemula');
-
-        -- Example 2: Missing price/disadvantages and demonstrating escaped quotes
-        INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantages, disadvantages) VALUES ('Data''s Co', 'Ekspor Laporan PDF', NULL, 'Mendukung format khusus perusahaan', NULL);
-        </examples>
+        You are an expert Data Engineer. Extract competitor analysis data from the provided text.
+        
+        Rules:
+        1. Translate all extracted values into Indonesian.
+        2. If a field is missing, leave it as null.
+        3. If a competitor has multiple distinct features, create a separate entry for each feature.
 
         <input_text>
         {text}
@@ -88,12 +81,31 @@ async def process_pdf(file: UploadFile = File(...)):
         """
         prompt = PromptTemplate.from_template(template)
 
-        # 5. Chain and Invoke
-        chain = prompt | llm
-        response = chain.invoke({"text": pdf_text})
+        # Chain and Invoke
+        chain = prompt | structured_llm
+        response_data = chain.invoke({"text": pdf_text})
 
-        # LangChain Python returns a message object; content is the string
-        return SQLResponse(sql=response.content)
+        # --- 3. Safely Build the SQL in Python ---
+        sql_statements = []
+        for row in response_data.results: # Iterate through the validated Pydantic objects
+            
+            # Escape single quotes (SQL injection/syntax defense)
+            comp_name = row.competitor_name.replace("'", "''") if row.competitor_name else ""
+            feat_name = row.feature_name.replace("'", "''") if row.feature_name else ""
+            
+            # Handle NULLs and escape quotes for optional fields
+            price = f"'{row.price.replace('\'', '\'\'')}'" if row.price else "NULL"
+            adv = f"'{row.advantages.replace('\'', '\'\'')}'" if row.advantages else "NULL"
+            disadv = f"'{row.disadvantages.replace('\'', '\'\'')}'" if row.disadvantages else "NULL"
+
+            # Construct the final SQL string
+            sql = f"INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantages, disadvantages) VALUES ('{comp_name}', '{feat_name}', {price}, {adv}, {disadv});"
+            sql_statements.append(sql)
+
+        # Join all statements with a newline
+        final_sql = "\n".join(sql_statements)
+
+        return SQLResponse(sql=final_sql)
 
     except Exception as e:
         print(f"Error processing PDF: {e}")
