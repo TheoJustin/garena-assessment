@@ -44,6 +44,13 @@ export default function RootLayout({
               >
                 Chat
               </Link>
+
+              <Link
+                href="/competitors"
+                className="text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Data
+              </Link>
             </div>
           </div>
         </nav>
