@@ -14,7 +14,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No SQL provided' }, { status: 400 });
     }
 
-    // 1. Ensure the table exists before trying to insert data
+    // 1. Ensure the table exists with the NEW pdf_name column
     const createTableQuery = `
       CREATE TABLE IF NOT EXISTS competitor_analysis (
           id SERIAL PRIMARY KEY,
@@ -22,7 +22,8 @@ export async function POST(req: Request) {
           feature_name VARCHAR(255),
           price VARCHAR(255),
           advantages TEXT,
-          disadvantages TEXT
+          disadvantages TEXT,
+          pdf_name VARCHAR(255)
       );
     `;
 
@@ -30,7 +31,6 @@ export async function POST(req: Request) {
     await pool.query(createTableQuery);
 
     // 2. Execute the generated INSERT statements
-    // pool.query can execute a string containing multiple statements
     await pool.query(sql);
 
     return NextResponse.json({

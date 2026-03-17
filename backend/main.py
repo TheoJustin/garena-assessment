@@ -66,12 +66,11 @@ async def process_pdf(file: UploadFile = File(...)):
         structured_llm = llm.with_structured_output(ExtractionResult)
 
         # Define the simplified Prompt 
-        # (We no longer need extreme SQL rules because Pydantic handles the structure)
         template = """
         You are an expert Data Engineer. Extract competitor analysis data from the provided text.
         
         Rules:
-        1. Extract all values in their original English language. Do not translate them.
+        1. Extract all values in their original English language. Translate them if they're not.
         2. If a field is missing, leave it as null.
         3. If a competitor has multiple distinct features, create a separate entry for each feature.
 
@@ -85,8 +84,12 @@ async def process_pdf(file: UploadFile = File(...)):
         chain = prompt | structured_llm
         response_data = chain.invoke({"text": pdf_text})
 
-        # --- 3. Safely Build the SQL in Python ---
+        # --- 3. Safely Build the SQL in Python (UPDATED) ---
         sql_statements = []
+        
+        # Grab the filename and escape it just in case someone uploads "Theo's_Report.pdf"
+        safe_pdf_name = file.filename.replace("'", "''") 
+
         for row in response_data.results: # Iterate through the validated Pydantic objects
             
             # Escape single quotes (SQL injection/syntax defense)
@@ -98,8 +101,8 @@ async def process_pdf(file: UploadFile = File(...)):
             adv = f"'{row.advantages.replace('\'', '\'\'')}'" if row.advantages else "NULL"
             disadv = f"'{row.disadvantages.replace('\'', '\'\'')}'" if row.disadvantages else "NULL"
 
-            # Construct the final SQL string
-            sql = f"INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantages, disadvantages) VALUES ('{comp_name}', '{feat_name}', {price}, {adv}, {disadv});"
+            # Construct the final SQL string WITH the pdf_name column included
+            sql = f"INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantages, disadvantages, pdf_name) VALUES ('{comp_name}', '{feat_name}', {price}, {adv}, {disadv}, '{safe_pdf_name}');"
             sql_statements.append(sql)
 
         # Join all statements with a newline
