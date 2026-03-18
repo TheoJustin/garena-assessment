@@ -43,6 +43,8 @@ export async function POST(req: Request) {
         
         When answering comparison questions, query multiple columns: 
         SELECT competitor_name, feature_name, advantages, disadvantages, price FROM competitor_analysis WHERE ...
+
+        give your output as text, do not give boldness such as **, because it will not be read by the system.
         `,
     messages: await convertToModelMessages(messages),
     tools: {
