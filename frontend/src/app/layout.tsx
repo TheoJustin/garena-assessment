@@ -6,8 +6,8 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'PDF SQL AI - Theo Justin A.',
-  description: 'Parse PDFs to SQL and query them with an LLM.',
+  title: 'THChat',
+  description: 'Competitor analysis powered by AI.',
 };
 
 export default function RootLayout({
@@ -22,8 +22,12 @@ export default function RootLayout({
       >
         <nav className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container mx-auto flex h-14 max-w-5xl items-center justify-between px-6">
-            <Link href="/" className="text-sm font-semibold tracking-tight">
-              TH<span className="text-zinc-500">Chat</span>
+            <Link href="/" className="flex items-center gap-2">
+              {/* Logo badge */}
+              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-zinc-100 text-xs font-bold text-zinc-900">
+                TH
+              </div>
+              <span className="text-sm font-semibold tracking-tight">Chat</span>
             </Link>
             <div className="flex gap-6 text-sm font-medium">
               <Link
@@ -44,7 +48,6 @@ export default function RootLayout({
               >
                 Chat
               </Link>
-
               <Link
                 href="/competitors"
                 className="text-muted-foreground transition-colors hover:text-foreground"
