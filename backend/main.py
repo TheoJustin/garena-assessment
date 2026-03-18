@@ -40,14 +40,29 @@ def ensure_index_exists():
 
 # --- 1. Pydantic Models ---
 class FeatureAnalysis(BaseModel):
-    competitor_name: str = Field(description="Company or product name.")
-    feature_name: str = Field(description="Specific feature, service, or functionality.")
-    price: Optional[str] = Field(default=None, description="Cost or pricing model. Leave null if not mentioned.")
-    advantages: Optional[str] = Field(default=None, description="Key strengths or pros.")
-    disadvantages: Optional[str] = Field(default=None, description="Key weaknesses or cons.")
+    competitor_name: str = Field(
+        description="The specific name of the game or product (e.g., 'Honor of Kings', 'Garena Free Fire')."
+    )
+    feature_name: str = Field(
+        description="A specific in-game mechanic, software functionality, or product capability (e.g., '5v5 Multiplayer', 'Gacha System', 'Voice Chat'). STRICT RULE: DO NOT include game genres (like 'MMORPG'), market metrics (like 'Downloads Growth'), or business strategies. If no specific software feature is mentioned, do not extract it."
+    )
+    price: Optional[str] = Field(
+        default=None, 
+        description="Cost, pricing model, or monetization strategy (e.g., 'Free-to-play', 'In-app purchases', '$4.99'). Leave null if not explicitly mentioned."
+    )
+    advantages: Optional[str] = Field(
+        default=None, 
+        description="Key strengths, pros, or positive player feedback specifically related to the game or feature."
+    )
+    disadvantages: Optional[str] = Field(
+        default=None, 
+        description="Key weaknesses, cons, or negative player feedback (e.g., 'High learning curve', 'Pay-to-win')."
+    )
 
 class ExtractionResult(BaseModel):
-    results: List[FeatureAnalysis] = Field(description="List of extracted competitor features.")
+    results: List[FeatureAnalysis] = Field(
+        description="List of extracted competitor features. Only include entries that have actual software/game mechanics as features."
+    )
 
 class SQLResponse(BaseModel):
     sql: str
@@ -77,12 +92,15 @@ async def process_pdf(file: UploadFile = File(...)):
         structured_llm = llm.with_structured_output(ExtractionResult)
 
         template = """
-        You are an expert Data Engineer. Extract competitor analysis data from the provided text.
+        You are an expert Data Engineer extracting competitor product features from a market report.
         
-        Rules:
-        1. Extract all values in their original English language. Translate them if they're not.
-        2. If a field is missing, leave it as null.
-        3. If a competitor has multiple distinct features, create a separate entry for each feature.
+        CRITICAL RULES:
+        1. Extract ACTUAL PRODUCT FEATURES or GAME MECHANICS (e.g., 'Auto-combat', 'Guild System', 'Cross-platform play').
+        2. EXCLUSION RULE: DO NOT extract market metrics, genres, or business performance as features. Terms like 'MMORPG', 'Downloads Growth', and 'Market Penetration' ARE NOT FEATURES. 
+        3. If a section of the text only discusses market trends without mentioning specific product functionalities, IGNORE IT. Do not force an extraction.
+        4. Extract all values in their original English language. Translate them if they're not.
+        5. If a field is missing, leave it as null.
+        6. If a competitor has multiple distinct features, create a separate entry for each feature.
 
         <input_text>
         {text}
