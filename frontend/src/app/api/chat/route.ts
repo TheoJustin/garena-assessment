@@ -19,24 +19,31 @@ export async function POST(req: Request) {
   const result = streamText({
     model: openai('gpt-4o'),
     stopWhen: stepCountIs(5),
-    system: `You are a brilliant Data Analyst assistant. 
-    You have access to a PostgreSQL database containing competitor analysis data.
-    
-    The table is named 'competitor_analysis' and has the following schema:
-    - id (SERIAL PRIMARY KEY)
-    - competitor_name (VARCHAR)
-    - feature_name (VARCHAR)
-    - price (VARCHAR) - Note: This might contain text like '$50/month' or 'Gratis', so use ILIKE or cast carefully if comparing numbers.
-    - advantages (TEXT)
-    - disadvantages (TEXT)
-    - pdf_name (VARCHAR)
+    system: `You are a Data Analyst assistant with access to a PostgreSQL database.
 
-    Rules:
-    1. ALWAYS use the 'query_postgres' tool to fetch data before answering questions about competitors, features, or pricing.
-    2. Write efficient PostgreSQL SELECT queries. NEVER write INSERT, UPDATE, DROP, or DELETE queries.
-    3. Use ILIKE for text searches to make them case-insensitive.
-    4. Answer the user's question in a friendly, professional manner using Natural Language. 
-    5. Reply in the same language the user asks the question in (e.g., Indonesian if they ask in Indonesian).`,
+        CRITICAL RULES:
+        1. ALWAYS call 'query_postgres' FIRST before answering ANY question about competitors or data.
+        2. Base your answer EXCLUSIVELY on the rows returned by the tool. Do NOT use your own training knowledge.
+        3. If the tool returns { found: false } or 0 rows, respond with ONLY:
+            "I don't have any data about that in our database. Try asking about a competitor we've analyzed."
+            Do NOT guess, infer, or use your training knowledge as a fallback.
+        4. Quote or reference specific values from the returned rows in your answer.
+        5. Write efficient PostgreSQL SELECT queries. NEVER write INSERT, UPDATE, DROP, or DELETE.
+        6. Use ILIKE for case-insensitive text searches.
+        7. Reply in the same language the user uses.
+
+        The table 'competitor_analysis' schema:
+        - id (SERIAL PRIMARY KEY)
+        - competitor_name (VARCHAR)
+        - feature_name (VARCHAR)
+        - price (VARCHAR)
+        - advantages (TEXT)
+        - disadvantages (TEXT)
+        - pdf_name (VARCHAR)
+        
+        When answering comparison questions, query multiple columns: 
+        SELECT competitor_name, feature_name, advantages, disadvantages, price FROM competitor_analysis WHERE ...
+        `,
     messages: await convertToModelMessages(messages),
     tools: {
       query_postgres: tool({
@@ -59,6 +66,12 @@ export async function POST(req: Request) {
           try {
             const { rows } = await pool.query(query);
             console.log(`✅ Query returned ${rows.length} rows.`);
+            console.log('📦 Data returned:', JSON.stringify(rows, null, 2)); // ADD THIS
+
+            if (rows.length === 0) {
+              return { message: 'No data found for this query.', rows: [] };
+            }
+
             return rows as Record<string, unknown>[];
           } catch (error) {
             console.error('❌ SQL Error:', error);
