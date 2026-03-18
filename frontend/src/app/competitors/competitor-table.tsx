@@ -26,8 +26,10 @@ interface Competitor {
 
 export default function CompetitorTable({
   initialData,
+  tableReady,
 }: {
   initialData: Competitor[];
+  tableReady: boolean;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -43,6 +45,34 @@ export default function CompetitorTable({
     return matchName || matchPdf || matchFeature;
   });
 
+  if(!tableReady){
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-8">
+        <div className="text-center max-w-md">
+          <div className="mb-4 flex justify-center">
+            <div className="rounded-full bg-zinc-900 p-4 ring-1 ring-zinc-800">
+              <FileText className="h-10 w-10 text-zinc-500" />
+            </div>
+          </div>
+          <h2 className="text-xl font-semibold text-zinc-100 mb-2">
+            No Data Yet
+          </h2>
+          <p className="text-zinc-400 mb-6 text-sm leading-relaxed">
+            The competitor database hasn't been set up yet. Upload a PDF first
+            to extract and store competitor analysis data, then come back here
+            to browse it.
+          </p>
+          <a
+            href="/upload"
+            className="inline-flex items-center gap-2 rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white transition-colors"
+          >
+            <FileText className="h-4 w-4" />
+            Go to Upload PDF
+          </a>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="min-h-screen bg-zinc-950 p-8 text-zinc-100">
       <div className="mx-auto max-w-6xl">

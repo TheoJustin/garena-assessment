@@ -9,17 +9,21 @@ const pool = new Pool({
 
 export default async function CompetitorsPage() {
   let initialData = [];
+  let tableReady = true; // ADD THIS
 
   try {
-    // Query ALL data once
     const { rows } = await pool.query(
       'SELECT * FROM competitor_analysis ORDER BY competitor_name ASC, id DESC',
     );
     initialData = rows;
-  } catch (error) {
-    console.error('Failed to fetch data:', error);
+  } catch (error: any) {
+    // Postgres error code 42P01 = "undefined_table"
+    if (error.code === '42P01') {
+      tableReady = false; // Table doesn't exist yet
+    } else {
+      console.error('Failed to fetch data:', error);
+    }
   }
 
-  // Pass the raw data into our interactive Client Component
-  return <CompetitorTable initialData={initialData} />;
+  return <CompetitorTable initialData={initialData} tableReady={tableReady} />;
 }
