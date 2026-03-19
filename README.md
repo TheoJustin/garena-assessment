@@ -8,7 +8,7 @@ A full-stack application that lets you upload competitor analysis PDFs, extract 
 
 ### Architecture Diagram
 
-![System Architecture](https://i.ibb.co/fPfg667/Garena-Diagram.png)
+![System Architecture](https://i.imgur.com/JZd5raA.png)
 
 ### Architecture Overview (Text)
 
