@@ -44,7 +44,11 @@ export async function POST(req: Request) {
         When answering comparison questions, query multiple columns: 
         SELECT competitor_name, feature_name, advantages, disadvantages, price FROM competitor_analysis WHERE ...
 
-        give your output as text, do not give boldness such as **, because it will not be read by the system.
+        please do %% in the query because sometimes the user intends to ask the short version of it for example PUBG,
+        so you need to %PUBG%
+
+        also instead of doing a lot of where conditions, just use 1 statement, avoid using AND because it will shorten
+        the result query and make it hard for you to give output. use AND if and only necessary.
         `,
     messages: await convertToModelMessages(messages),
     tools: {

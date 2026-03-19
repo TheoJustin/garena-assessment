@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DefaultChatTransport, type UIMessage, type ToolUIPart } from 'ai';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import ReactMarkdown from 'react-markdown';
 import {
   Card,
   CardContent,
@@ -74,9 +75,39 @@ function ChatMessage({ message }: { message: UIMessage }) {
         {message.parts.map((part, index) => {
           if (part.type === 'text') {
             return (
-              <span key={index} className="whitespace-pre-wrap">
+              <ReactMarkdown
+                key={index}
+                components={{
+                  p: ({ children }) => (
+                    <p className="mb-2 last:mb-0">{children}</p>
+                  ),
+                  strong: ({ children }) => (
+                    <strong className="font-semibold text-zinc-100">
+                      {children}
+                    </strong>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="mb-2 ml-4 list-disc space-y-1">
+                      {children}
+                    </ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol className="mb-2 ml-4 list-decimal space-y-1">
+                      {children}
+                    </ol>
+                  ),
+                  li: ({ children }) => (
+                    <li className="text-zinc-300">{children}</li>
+                  ),
+                  code: ({ children }) => (
+                    <code className="rounded bg-zinc-800 px-1 py-0.5 font-mono text-xs text-zinc-200">
+                      {children}
+                    </code>
+                  ),
+                }}
+              >
                 {part.text}
-              </span>
+              </ReactMarkdown>
             );
           }
 

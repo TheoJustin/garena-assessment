@@ -18,7 +18,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://frontend:3000", 
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -41,7 +44,7 @@ def ensure_index_exists():
 # --- 1. Pydantic Models ---
 class FeatureAnalysis(BaseModel):
     competitor_name: str = Field(
-        description="The specific name of the game or product (e.g., 'Honor of Kings', 'Garena Free Fire')."
+        description="The specific name of the game or product (e.g., 'Honor of Kings', 'Garena Free Fire'). DO NOT: Send Battle Royale Games, Send a specific game!"
     )
     feature_name: str = Field(
         description="A specific in-game mechanic, software functionality, or product capability (e.g., '5v5 Multiplayer', 'Gacha System', 'Voice Chat'). STRICT RULE: DO NOT include game genres (like 'MMORPG'), market metrics (like 'Downloads Growth'), or business strategies. If no specific software feature is mentioned, do not extract it."
@@ -101,6 +104,7 @@ async def process_pdf(file: UploadFile = File(...)):
         4. Extract all values in their original English language. Translate them if they're not.
         5. If a field is missing, leave it as null.
         6. If a competitor has multiple distinct features, create a separate entry for each feature.
+        7. As a competitor name, Please specify a specific game rather than saying a general genre for example: Battle Royale Games
 
         <input_text>
         {text}
