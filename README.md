@@ -32,8 +32,7 @@ A full-stack application that lets you upload competitor analysis PDFs, extract 
 ### 1. Clone and configure environment
 
 ```bash
-git clone <your-repo-url>
-cd thchat
+git clone https://github.com/TheoJustin/garena-assessment.git
 ```
 
 Create a `.env` file in the project root:
@@ -77,12 +76,10 @@ docker volume rm garena_postgres_data
 ### Project Structure
 
 ```
-thchat/
+/
 ├── docker-compose.yml
 ├── .env                  ← secrets (never commit)
 ├── .env.example          ← template for teammates
-├── postgres/
-│   └── init.sql          ← auto-creates table on first run
 ├── frontend/             ← Next.js app
 │   ├── Dockerfile
 │   └── ...
