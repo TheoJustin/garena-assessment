@@ -30,7 +30,7 @@ export async function POST(req: Request) {
         4. Quote or reference specific values from the returned rows in your answer.
         5. Write efficient PostgreSQL SELECT queries. NEVER write INSERT, UPDATE, DROP, or DELETE.
         6. Use ILIKE for case-insensitive text searches.
-        7. Reply in the same language the user uses.
+        7. Reply in the same language the user uses (Usually answer either english or indonesian).
 
         The table 'competitor_analysis' schema:
         - id (SERIAL PRIMARY KEY)
