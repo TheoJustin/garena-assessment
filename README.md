@@ -111,6 +111,8 @@ INSERT INTO competitor_analysis (competitor_name, feature_name, price, advantage
 VALUES ('PlayerUnknown''s Battlegrounds (PUBG)', 'Shrinking map mechanic', NULL, 'Encourages player conflict and strategic navigation of the terrain.', NULL, 'battle-royale-report.pdf');
 ```
 
+When asked, "What are the key takeaways from PUBG advantages that makes them a good battle royale game?"
+
 ### NL-to-SQL Chat Example
 
 **Input:**
