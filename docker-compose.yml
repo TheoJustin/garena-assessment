@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
 
   backend:
     build:
@@ -51,7 +51,10 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:

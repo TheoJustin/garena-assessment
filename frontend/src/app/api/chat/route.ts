@@ -7,11 +7,7 @@ import {
 } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
-import { Pool } from 'pg';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+import { pool } from '@/lib/db';
 
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json();

@@ -61,6 +61,9 @@ docker compose up --build
 | Frontend | http://localhost:3000 |
 | Backend (FastAPI) | http://localhost:8000 |
 | API Docs (Swagger) | http://localhost:8000/docs |
+| PostgreSQL (host access) | localhost:5433 |
+
+> Note: PostgreSQL is exposed on port `5433` so it does not collide with a local Postgres instance already using `5432`.
 
 ### 4. Stopping the app
 

@@ -1,11 +1,7 @@
-import { Pool } from 'pg';
+import { pool } from '@/lib/db';
 import CompetitorTable from './competitor-table';
 
 export const dynamic = 'force-dynamic';
-
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
 
 export default async function CompetitorsPage() {
   let initialData = [];

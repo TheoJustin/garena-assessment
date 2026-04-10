@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import { Pool } from 'pg';
-
-// Initialize the Postgres connection pool
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+import { pool } from '@/lib/db';
 
 export async function POST(req: Request) {
   try {
