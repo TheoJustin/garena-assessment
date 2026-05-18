@@ -122,10 +122,24 @@
   }
   body {
     @apply bg-background text-foreground;
+    background:
+      radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 26%),
+      linear-gradient(180deg, rgba(20, 20, 24, 1), rgba(10, 10, 12, 1));
+    min-height: 100vh;
   }
   html {
     @apply font-sans;
   }
+}
+
+::selection {
+  background: rgba(212, 212, 216, 0.26);
+  color: #fafafa;
+}
+
+* {
+  scrollbar-color: rgba(113, 113, 122, 0.72) rgba(24, 24, 27, 0.4);
+  scrollbar-width: thin;
 }
 
 @keyframes progress-slide {

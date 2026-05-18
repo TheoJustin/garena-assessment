@@ -1,9 +1,12 @@
 import hashlib
+import json
 import os
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from chromadb.config import Settings
 from dotenv import load_dotenv
@@ -25,11 +28,16 @@ CHROMA_PERSIST_DIRECTORY = Path(
 )
 BUNDLED_PDF_DIR = Path(os.getenv("BUNDLED_PDF_DIR", PROJECT_ROOT / "data" / "pdfs"))
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "ojk-regulatory-documents")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openrouter").lower()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_MODEL = os.getenv(
     "OPENROUTER_MODEL", "nvidia/nemotron-nano-9b-v2:free"
 )
 OPENROUTER_EMBEDDING_MODEL = os.getenv("OPENROUTER_EMBEDDING_MODEL", "baai/bge-m3")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3:8b")
+OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "embeddinggemma")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1200"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
 SIMILARITY_TOP_K = int(os.getenv("SIMILARITY_TOP_K", "6"))
@@ -93,6 +101,47 @@ class RagResponse(BaseModel):
     sources: List[SourceReference]
 
 
+class ProviderStatus(BaseModel):
+    name: str
+    base_url: str
+    chat_model: str
+    embedding_model: str
+    configured: bool
+    reachable: bool
+    available_models: List[str]
+    missing_models: List[str]
+    error: Optional[str] = None
+
+
+class WorkflowStep(BaseModel):
+    id: str
+    label: str
+    status: str
+    detail: str
+
+
+class WorkflowStatusResponse(BaseModel):
+    provider: ProviderStatus
+    indexed_documents: int
+    total_chunks: int
+    workflow_steps: List[WorkflowStep]
+    recommended_next_action: str
+
+
+def normalize_openai_compatible_base_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return normalized
+    return f"{normalized}/v1"
+
+
+def normalize_ollama_http_base_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/v1"):
+        return normalized[:-3]
+    return normalized
+
+
 @lru_cache(maxsize=1)
 def get_default_headers() -> Optional[Dict[str, str]]:
     headers: Dict[str, str] = {}
@@ -118,14 +167,87 @@ def require_openrouter_key() -> str:
     return api_key
 
 
+def get_provider_configuration() -> Tuple[bool, Optional[str]]:
+    if AI_PROVIDER == "ollama":
+        missing = []
+        if not OLLAMA_BASE_URL:
+            missing.append("OLLAMA_BASE_URL")
+        if not OLLAMA_CHAT_MODEL:
+            missing.append("OLLAMA_CHAT_MODEL")
+        if not OLLAMA_EMBEDDING_MODEL:
+            missing.append("OLLAMA_EMBEDDING_MODEL")
+        if missing:
+            return (
+                False,
+                f"Missing Ollama configuration: {', '.join(missing)}.",
+            )
+        return True, None
+
+    if AI_PROVIDER == "openrouter":
+        missing = []
+        if not os.getenv("OPENROUTER_API_KEY"):
+            missing.append("OPENROUTER_API_KEY")
+        if not OPENROUTER_MODEL:
+            missing.append("OPENROUTER_MODEL")
+        if not OPENROUTER_EMBEDDING_MODEL:
+            missing.append("OPENROUTER_EMBEDDING_MODEL")
+        if missing:
+            return (
+                False,
+                f"Missing OpenRouter configuration: {', '.join(missing)}.",
+            )
+        return True, None
+
+    return False, f"Unsupported AI_PROVIDER '{AI_PROVIDER}'."
+
+
+def get_chat_runtime_config() -> Dict[str, Optional[str]]:
+    if AI_PROVIDER == "ollama":
+        return {
+            "api_key": OLLAMA_API_KEY or "ollama",
+            "base_url": normalize_openai_compatible_base_url(OLLAMA_BASE_URL),
+            "headers": None,
+            "model": OLLAMA_CHAT_MODEL,
+            "provider": "ollama",
+        }
+
+    return {
+        "api_key": require_openrouter_key(),
+        "base_url": OPENROUTER_BASE_URL,
+        "headers": get_default_headers(),
+        "model": OPENROUTER_MODEL,
+        "provider": "openrouter",
+    }
+
+
+def get_embedding_runtime_config() -> Dict[str, Optional[str]]:
+    if AI_PROVIDER == "ollama":
+        return {
+            "api_key": OLLAMA_API_KEY or "ollama",
+            "base_url": normalize_openai_compatible_base_url(OLLAMA_BASE_URL),
+            "headers": None,
+            "model": OLLAMA_EMBEDDING_MODEL,
+            "provider": "ollama",
+        }
+
+    return {
+        "api_key": require_openrouter_key(),
+        "base_url": OPENROUTER_BASE_URL,
+        "headers": get_default_headers(),
+        "model": OPENROUTER_EMBEDDING_MODEL,
+        "provider": "openrouter",
+    }
+
+
 @lru_cache(maxsize=1)
 def get_embeddings() -> OpenAIEmbeddings:
+    config = get_embedding_runtime_config()
     return OpenAIEmbeddings(
-        model=OPENROUTER_EMBEDDING_MODEL,
-        deployment=OPENROUTER_EMBEDDING_MODEL,
-        api_key=require_openrouter_key(),
-        base_url=OPENROUTER_BASE_URL,
-        default_headers=get_default_headers(),
+        model=config["model"],
+        deployment=config["model"],
+        api_key=config["api_key"],
+        base_url=config["base_url"],
+        default_headers=config["headers"],
         tiktoken_enabled=False,
         check_embedding_ctx_length=False,
     )
@@ -133,12 +255,13 @@ def get_embeddings() -> OpenAIEmbeddings:
 
 @lru_cache(maxsize=1)
 def get_llm() -> ChatOpenAI:
+    config = get_chat_runtime_config()
     return ChatOpenAI(
-        model=OPENROUTER_MODEL,
+        model=config["model"],
         temperature=0,
-        api_key=require_openrouter_key(),
-        base_url=OPENROUTER_BASE_URL,
-        default_headers=get_default_headers(),
+        api_key=config["api_key"],
+        base_url=config["base_url"],
+        default_headers=config["headers"],
         max_retries=2,
     )
 
@@ -170,6 +293,176 @@ def persist_store(store: Chroma) -> None:
 def build_chunk_id(source: str, page: int, content: str) -> str:
     raw = f"{source}|{page}|{content}".encode("utf-8")
     return hashlib.sha1(raw).hexdigest()
+
+
+def fetch_json(url: str, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    request = Request(url, headers=headers or {})
+
+    try:
+        with urlopen(request, timeout=4) as response:
+            raw_payload = response.read().decode("utf-8")
+    except HTTPError as exc:
+        error_payload = exc.read().decode("utf-8", errors="ignore").strip()
+        detail = error_payload or getattr(exc, "reason", "Unknown HTTP error")
+        raise RuntimeError(f"HTTP {exc.code} from {url}: {detail}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Could not reach {url}: {exc.reason}") from exc
+
+    try:
+        parsed = json.loads(raw_payload)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Received non-JSON response from {url}.") from exc
+
+    if not isinstance(parsed, dict):
+        raise RuntimeError(f"Unexpected JSON payload from {url}.")
+
+    return parsed
+
+
+def get_provider_headers() -> Optional[Dict[str, str]]:
+    if AI_PROVIDER == "openrouter":
+        api_key = os.getenv("OPENROUTER_API_KEY")
+        if not api_key:
+            return None
+
+        headers = {"Authorization": f"Bearer {api_key}"}
+        default_headers = get_default_headers() or {}
+        headers.update(default_headers)
+        return headers
+
+    return None
+
+
+def list_available_provider_models() -> List[str]:
+    if AI_PROVIDER == "ollama":
+        payload = fetch_json(
+            f"{normalize_ollama_http_base_url(OLLAMA_BASE_URL)}/api/tags"
+        )
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            return []
+
+        return sorted(
+            {
+                str(model.get("name", "")).strip()
+                for model in models
+                if isinstance(model, dict) and model.get("name")
+            }
+        )
+
+    if AI_PROVIDER == "openrouter":
+        headers = get_provider_headers()
+        if not headers:
+            return []
+
+        payload = fetch_json(f"{OPENROUTER_BASE_URL.rstrip('/')}/models", headers=headers)
+        models = payload.get("data", [])
+        if not isinstance(models, list):
+            return []
+
+        return sorted(
+            {
+                str(model.get("id", "")).strip()
+                for model in models
+                if isinstance(model, dict) and model.get("id")
+            }
+        )
+
+    return []
+
+
+def build_provider_status() -> ProviderStatus:
+    chat_config = get_chat_runtime_config() if AI_PROVIDER == "ollama" else {
+        "base_url": OPENROUTER_BASE_URL,
+        "model": OPENROUTER_MODEL,
+    }
+    embedding_config = (
+        get_embedding_runtime_config()
+        if AI_PROVIDER == "ollama"
+        else {
+            "base_url": OPENROUTER_BASE_URL,
+            "model": OPENROUTER_EMBEDDING_MODEL,
+        }
+    )
+    configured, configuration_error = get_provider_configuration()
+
+    available_models: List[str] = []
+    reachable = False
+    error = configuration_error
+
+    if configured:
+        try:
+            available_models = list_available_provider_models()
+            reachable = True
+            error = None
+        except Exception as exc:
+            error = str(exc)
+
+    expected_models = [
+        str(chat_config.get("model", "") or "").strip(),
+        str(embedding_config.get("model", "") or "").strip(),
+    ]
+    missing_models = (
+        [
+            model
+            for model in expected_models
+            if model and reachable and available_models and model not in available_models
+        ]
+        if AI_PROVIDER == "ollama"
+        else []
+    )
+
+    return ProviderStatus(
+        name=AI_PROVIDER,
+        base_url=str(chat_config.get("base_url", "")),
+        chat_model=str(chat_config.get("model", "")),
+        embedding_model=str(embedding_config.get("model", "")),
+        configured=configured,
+        reachable=reachable,
+        available_models=available_models,
+        missing_models=missing_models,
+        error=error,
+    )
+
+
+def describe_provider_failure(*, phase: str, exc: Exception, model: str) -> str:
+    raw_message = str(exc).strip() or exc.__class__.__name__
+    normalized_message = raw_message.lower()
+
+    if AI_PROVIDER == "ollama":
+        guidance = [
+            f"{phase} failed while contacting Ollama at {OLLAMA_BASE_URL}.",
+            f"Configured model: {model}.",
+        ]
+
+        if "404" in normalized_message or "not found" in normalized_message:
+            guidance.append(
+                f"Make sure that model is available on the VPS by running `ollama pull {model}`."
+            )
+        elif any(
+            token in normalized_message
+            for token in [
+                "connection refused",
+                "timed out",
+                "failed to establish",
+                "name or service not known",
+                "nodename nor servname",
+                "could not reach",
+            ]
+        ):
+            guidance.append(
+                "Check that Ollama is running, bound to a reachable host, and exposed on the configured port."
+            )
+
+        guidance.append(f"Original error: {raw_message}")
+        return " ".join(guidance)
+
+    guidance = [f"{phase} failed while contacting OpenRouter."]
+    if "401" in normalized_message or "unauthorized" in normalized_message:
+        guidance.append("Verify that OPENROUTER_API_KEY is present and valid.")
+    guidance.append(f"Configured model: {model}.")
+    guidance.append(f"Original error: {raw_message}")
+    return " ".join(guidance)
 
 
 def get_existing_ids(store: Chroma, ids: List[str]) -> Set[str]:
@@ -315,11 +608,143 @@ def ingest_bundled_documents() -> List[DocumentSummary]:
     return [ingest_pdf(path) for path in pdf_paths]
 
 
+def build_workflow_steps(
+    *, indexed_documents: int, total_chunks: int, provider: ProviderStatus
+) -> List[WorkflowStep]:
+    has_documents = indexed_documents > 0 and total_chunks > 0
+    provider_ready = (
+        provider.configured
+        and provider.reachable
+        and not provider.missing_models
+    )
+
+    return [
+        WorkflowStep(
+            id="pdf",
+            label="PDF ingestion",
+            status="complete" if has_documents else "pending",
+            detail=(
+                f"{indexed_documents} indexed document(s) are already available."
+                if has_documents
+                else "Upload a PDF or seed the bundled OJK regulations first."
+            ),
+        ),
+        WorkflowStep(
+            id="chunking",
+            label="Chunking",
+            status="complete" if has_documents else "pending",
+            detail=(
+                f"{total_chunks} retrieval chunks are stored for search."
+                if has_documents
+                else "Chunks will be created automatically during ingestion."
+            ),
+        ),
+        WorkflowStep(
+            id="chromadb",
+            label="ChromaDB storage",
+            status="complete" if has_documents else "pending",
+            detail=(
+                str(CHROMA_PERSIST_DIRECTORY)
+                if has_documents
+                else "The local Chroma database will persist vectors after indexing."
+            ),
+        ),
+        WorkflowStep(
+            id="question",
+            label="User input",
+            status="ready" if has_documents else "pending",
+            detail=(
+                "The chat UI is ready to accept a regulatory question."
+                if has_documents
+                else "The question step opens up after at least one document is indexed."
+            ),
+        ),
+        WorkflowStep(
+            id="provider",
+            label=f"{provider.name.title()} query",
+            status=(
+                "complete"
+                if provider_ready
+                else "blocked"
+                if provider.configured
+                else "pending"
+            ),
+            detail=(
+                f"{provider.chat_model} and {provider.embedding_model} are reachable."
+                if provider_ready
+                else provider.error
+                or "Finish configuring the provider before sending a question."
+            ),
+        ),
+        WorkflowStep(
+            id="answer",
+            label="User output",
+            status="ready" if has_documents and provider_ready else "pending",
+            detail=(
+                "Grounded answers can now be generated from retrieved chunks."
+                if has_documents and provider_ready
+                else "Answer generation becomes available once Chroma is populated and the provider is reachable."
+            ),
+        ),
+    ]
+
+
+def build_workflow_status() -> WorkflowStatusResponse:
+    documents = summarize_indexed_documents()
+    provider = build_provider_status()
+    indexed_documents = len(documents.documents)
+    total_chunks = documents.total_chunks
+
+    if indexed_documents == 0:
+        next_action = (
+            "Upload a PDF or seed the bundled documents so Chroma has something to retrieve."
+        )
+    elif not provider.configured:
+        next_action = (
+            "Complete the provider settings in regulatory-local/.env before asking questions."
+        )
+    elif not provider.reachable:
+        if provider.name == "ollama":
+            next_action = (
+                "Bring the Ollama server online, confirm the base URL is reachable from Docker, then refresh this page."
+            )
+        else:
+            next_action = (
+                "Verify the OpenRouter key and network access, then refresh this page."
+            )
+    elif provider.missing_models:
+        if provider.name == "ollama":
+            missing = ", ".join(provider.missing_models)
+            next_action = (
+                f"Pull the missing Ollama model(s): {missing}, then retry the chat flow."
+            )
+        else:
+            next_action = (
+                "Choose models that exist on OpenRouter or update the configured model IDs."
+            )
+    else:
+        next_action = "The workflow is ready. Move to the chat page and ask a business-side regulatory question."
+
+    return WorkflowStatusResponse(
+        provider=provider,
+        indexed_documents=indexed_documents,
+        total_chunks=total_chunks,
+        workflow_steps=build_workflow_steps(
+            indexed_documents=indexed_documents,
+            total_chunks=total_chunks,
+            provider=provider,
+        ),
+        recommended_next_action=next_action,
+    )
+
+
 @app.on_event("startup")
 def startup_tasks() -> None:
     CHROMA_PERSIST_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
-    if AUTO_INGEST_BUNDLED_PDFS and os.getenv("OPENROUTER_API_KEY"):
+    provider_configured, _ = get_provider_configuration()
+
+    if AUTO_INGEST_BUNDLED_PDFS and provider_configured:
         try:
             print("Auto-ingesting bundled PDFs into Chroma...")
             documents = ingest_bundled_documents()
@@ -336,11 +761,28 @@ def startup_tasks() -> None:
 
 @app.get("/health")
 def health() -> Dict[str, object]:
+    configured, configuration_error = get_provider_configuration()
+    chat_base_url = (
+        normalize_openai_compatible_base_url(OLLAMA_BASE_URL)
+        if AI_PROVIDER == "ollama"
+        else OPENROUTER_BASE_URL
+    )
+    chat_model = OLLAMA_CHAT_MODEL if AI_PROVIDER == "ollama" else OPENROUTER_MODEL
+    embedding_model = (
+        OLLAMA_EMBEDDING_MODEL
+        if AI_PROVIDER == "ollama"
+        else OPENROUTER_EMBEDDING_MODEL
+    )
     return {
         "status": "ok",
+        "ai_provider": AI_PROVIDER,
+        "provider_configured": configured,
+        "provider_configuration_error": configuration_error,
         "collection": CHROMA_COLLECTION,
-        "chat_model": OPENROUTER_MODEL,
-        "embedding_model": OPENROUTER_EMBEDDING_MODEL,
+        "chat_model": chat_model,
+        "chat_base_url": chat_base_url,
+        "embedding_model": embedding_model,
+        "embedding_base_url": chat_base_url,
         "bundled_pdf_dir": str(BUNDLED_PDF_DIR),
         "chroma_persist_directory": str(CHROMA_PERSIST_DIRECTORY),
         "auto_ingest_bundled_pdfs": AUTO_INGEST_BUNDLED_PDFS,
@@ -370,6 +812,11 @@ def list_documents() -> DocumentsResponse:
     return summarize_indexed_documents()
 
 
+@app.get("/workflow-status", response_model=WorkflowStatusResponse)
+def workflow_status() -> WorkflowStatusResponse:
+    return build_workflow_status()
+
+
 @app.post("/process-pdf", response_model=IngestionResponse)
 async def process_pdf(file: UploadFile = File(...)) -> IngestionResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -391,7 +838,19 @@ async def process_pdf(file: UploadFile = File(...)) -> IngestionResponse:
         raise
     except Exception as exc:
         print(f"Error ingesting uploaded PDF: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        embedding_model = (
+            OLLAMA_EMBEDDING_MODEL
+            if AI_PROVIDER == "ollama"
+            else OPENROUTER_EMBEDDING_MODEL
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=describe_provider_failure(
+                phase="PDF indexing",
+                exc=exc,
+                model=embedding_model,
+            ),
+        )
     finally:
         if "tmp_path" in locals() and tmp_path.exists():
             tmp_path.unlink(missing_ok=True)
@@ -399,12 +858,29 @@ async def process_pdf(file: UploadFile = File(...)) -> IngestionResponse:
 
 @app.post("/ingest-bundled-documents", response_model=IngestionResponse)
 def ingest_seed_documents() -> IngestionResponse:
-    documents = ingest_bundled_documents()
-    return IngestionResponse(
-        documents=documents,
-        total_chunks_indexed=sum(document.chunks_indexed for document in documents),
-        total_chunks_skipped=sum(document.chunks_skipped for document in documents),
-    )
+    try:
+        documents = ingest_bundled_documents()
+        return IngestionResponse(
+            documents=documents,
+            total_chunks_indexed=sum(document.chunks_indexed for document in documents),
+            total_chunks_skipped=sum(document.chunks_skipped for document in documents),
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        embedding_model = (
+            OLLAMA_EMBEDDING_MODEL
+            if AI_PROVIDER == "ollama"
+            else OPENROUTER_EMBEDDING_MODEL
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=describe_provider_failure(
+                phase="Bundled document indexing",
+                exc=exc,
+                model=embedding_model,
+            ),
+        )
 
 
 @app.post("/rag-chat", response_model=RagResponse)
@@ -420,7 +896,23 @@ def rag_chat(request: RagRequest) -> RagResponse:
             sources=[],
         )
 
-    results = store.similarity_search(question, k=SIMILARITY_TOP_K)
+    try:
+        results = store.similarity_search(question, k=SIMILARITY_TOP_K)
+    except Exception as exc:
+        embedding_model = (
+            OLLAMA_EMBEDDING_MODEL
+            if AI_PROVIDER == "ollama"
+            else OPENROUTER_EMBEDDING_MODEL
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=describe_provider_failure(
+                phase="Context retrieval",
+                exc=exc,
+                model=embedding_model,
+            ),
+        )
+
     if not results:
         return RagResponse(
             response="I couldn't find a relevant section in the indexed regulations for that question.",
@@ -465,12 +957,23 @@ Retrieved context:
 Write a concise answer and cite sources inline using this format: [filename p.X].
 """
 
-    response = llm.invoke(
-        [
-            ("system", system_prompt.strip()),
-            ("human", user_prompt.strip()),
-        ]
-    )
+    try:
+        response = llm.invoke(
+            [
+                ("system", system_prompt.strip()),
+                ("human", user_prompt.strip()),
+            ]
+        )
+    except Exception as exc:
+        chat_model = OLLAMA_CHAT_MODEL if AI_PROVIDER == "ollama" else OPENROUTER_MODEL
+        raise HTTPException(
+            status_code=500,
+            detail=describe_provider_failure(
+                phase="Answer generation",
+                exc=exc,
+                model=chat_model,
+            ),
+        )
     answer = response.content if isinstance(response.content, str) else str(response.content)
 
     return RagResponse(response=answer, sources=sources)

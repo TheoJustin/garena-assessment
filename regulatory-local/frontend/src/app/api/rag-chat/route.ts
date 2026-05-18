@@ -22,8 +22,8 @@ export async function POST(req: Request) {
       body: JSON.stringify({ message }),
       cache: 'no-store',
     });
-
-    const data = await upstream.json();
+    const rawText = await upstream.text();
+    const data = rawText.trim() ? JSON.parse(rawText) : {};
 
     if (!upstream.ok) {
       return NextResponse.json(
@@ -35,23 +35,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const sourceFooter =
-      Array.isArray(data.sources) && data.sources.length > 0
-        ? `\n\nSources:\n${data.sources
-            .map(
-              (source: { source: string; page: number }) =>
-                `- ${source.source} (page ${source.page})`,
-            )
-            .join('\n')}`
-        : '';
-
-    return NextResponse.json({ response: `${data.response}${sourceFooter}` });
+    return NextResponse.json({
+      response: data.response,
+      sources: Array.isArray(data.sources) ? data.sources : [],
+    });
   } catch (error) {
     console.error('RAG chat error:', error);
     return NextResponse.json(
       {
         error: 'Failed to process your question',
-        details: (error as Error).message,
+        details:
+          error instanceof Error
+            ? error.message
+            : 'Unknown chat proxy error',
       },
       { status: 500 },
     );

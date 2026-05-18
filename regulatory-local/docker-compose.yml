@@ -6,12 +6,17 @@ services:
     container_name: thchat-regulatory-backend
     restart: unless-stopped
     environment:
+      AI_PROVIDER: ${AI_PROVIDER}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL}
       OPENROUTER_MODEL: ${OPENROUTER_MODEL}
       OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
       OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE}
       OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL}
       CHROMA_COLLECTION: ${CHROMA_COLLECTION}
       CHROMA_PERSIST_DIRECTORY: /app/chroma_db
       BUNDLED_PDF_DIR: /app/data/pdfs
@@ -24,6 +29,8 @@ services:
     volumes:
       - ./backend/chroma_db:/app/chroma_db
       - ./data/pdfs:/app/data/pdfs:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test:
         [
