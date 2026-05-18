@@ -4,6 +4,7 @@ import os
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, List, Optional, Set, Tuple
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -70,6 +71,7 @@ app.add_middleware(
 )
 
 vector_store: Optional[Chroma] = None
+vector_store_lock = Lock()
 
 
 class DocumentSummary(BaseModel):
@@ -274,16 +276,18 @@ def get_vector_store() -> Chroma:
     global vector_store
 
     if vector_store is None:
-        vector_store = Chroma(
-            collection_name=CHROMA_COLLECTION,
-            embedding_function=get_embeddings(),
-            persist_directory=str(CHROMA_PERSIST_DIRECTORY),
-            client_settings=Settings(
-                anonymized_telemetry=ANONYMIZED_TELEMETRY,
-                chroma_product_telemetry_impl=CHROMA_PRODUCT_TELEMETRY_IMPL,
-                chroma_telemetry_impl=CHROMA_PRODUCT_TELEMETRY_IMPL,
-            ),
-        )
+        with vector_store_lock:
+            if vector_store is None:
+                vector_store = Chroma(
+                    collection_name=CHROMA_COLLECTION,
+                    embedding_function=get_embeddings(),
+                    persist_directory=str(CHROMA_PERSIST_DIRECTORY),
+                    client_settings=Settings(
+                        anonymized_telemetry=ANONYMIZED_TELEMETRY,
+                        chroma_product_telemetry_impl=CHROMA_PRODUCT_TELEMETRY_IMPL,
+                        chroma_telemetry_impl=CHROMA_PRODUCT_TELEMETRY_IMPL,
+                    ),
+                )
 
     return vector_store
 
@@ -745,6 +749,7 @@ def build_workflow_status() -> WorkflowStatusResponse:
 @app.on_event("startup")
 def startup_tasks() -> None:
     CHROMA_PERSIST_DIRECTORY.mkdir(parents=True, exist_ok=True)
+    get_vector_store()
 
     provider_configured, _ = get_provider_configuration()
 
