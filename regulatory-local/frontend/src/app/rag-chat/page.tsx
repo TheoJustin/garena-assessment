@@ -285,14 +285,6 @@ export default function RagChatPage() {
     const trimmed = message.trim();
     if (!trimmed || isThinking) return;
 
-    if (!isWorkflowReady(workflowStatus)) {
-      appendAssistantMessage(
-        workflowStatus?.recommended_next_action ??
-          'The workflow is not ready yet. Index at least one PDF and verify the provider configuration first.',
-      );
-      return;
-    }
-
     startTransition(() => {
       setMessages((current) => [
         ...current,
@@ -498,10 +490,10 @@ export default function RagChatPage() {
                 placeholder={
                   workflowReady
                     ? 'Ask what changed, what a clause means, or what the operational impact is...'
-                    : 'This composer unlocks once documents are indexed and the provider is reachable.'
+                    : 'Ask anyway if you want. The backend will tell us whether indexing or provider setup still needs attention.'
                 }
-                className="min-h-[92px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-500"
-                disabled={isThinking || !workflowReady}
+                className="min-h-[92px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:text-zinc-500"
+                disabled={isThinking}
               />
 
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 px-2 pt-3">
@@ -511,7 +503,7 @@ export default function RagChatPage() {
                 <Button
                   type="button"
                   onClick={submitCurrentInput}
-                  disabled={!input.trim() || isThinking || !workflowReady}
+                  disabled={!input.trim() || isThinking}
                   className="h-11 rounded-full bg-zinc-100 px-5 text-zinc-900 hover:bg-zinc-200"
                 >
                   Send
