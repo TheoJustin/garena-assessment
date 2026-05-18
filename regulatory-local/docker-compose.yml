@@ -1,0 +1,56 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: thchat-regulatory-backend
+    restart: unless-stopped
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL}
+      OPENROUTER_EMBEDDING_MODEL: ${OPENROUTER_EMBEDDING_MODEL}
+      OPENROUTER_APP_TITLE: ${OPENROUTER_APP_TITLE}
+      OPENROUTER_HTTP_REFERER: ${OPENROUTER_HTTP_REFERER}
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION}
+      CHROMA_PERSIST_DIRECTORY: /app/chroma_db
+      BUNDLED_PDF_DIR: /app/data/pdfs
+      AUTO_INGEST_BUNDLED_PDFS: ${AUTO_INGEST_BUNDLED_PDFS}
+      ANONYMIZED_TELEMETRY: ${ANONYMIZED_TELEMETRY}
+      CHROMA_PRODUCT_TELEMETRY_IMPL: ${CHROMA_PRODUCT_TELEMETRY_IMPL}
+      CHUNK_SIZE: ${CHUNK_SIZE}
+      CHUNK_OVERLAP: ${CHUNK_OVERLAP}
+      SIMILARITY_TOP_K: ${SIMILARITY_TOP_K}
+    volumes:
+      - ./backend/chroma_db:/app/chroma_db
+      - ./data/pdfs:/app/data/pdfs:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "8001:8000"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_BACKEND_URL: http://localhost:8001
+    container_name: thchat-regulatory-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_URL: http://backend:8000
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:8001
+    ports:
+      - "3001:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
