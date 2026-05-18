@@ -76,10 +76,22 @@ export async function fetchJsonWithTimeout<T>(
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
+    let response: Response;
+
+    try {
+      response = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new Error(
+          'The backend took too long to respond. If many PDFs are indexed, refresh again or wait a moment.',
+        );
+      }
+
+      throw error;
+    }
 
     return readJsonResponse<T>(response, 'The server returned an invalid response.');
   } finally {

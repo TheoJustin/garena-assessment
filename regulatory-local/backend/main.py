@@ -599,6 +599,19 @@ def summarize_indexed_documents() -> DocumentsResponse:
     )
 
 
+def get_index_overview() -> Tuple[int, int]:
+    store = get_vector_store()
+    total_chunks = store._collection.count()
+
+    if total_chunks <= 0:
+        return 0, 0
+
+    # For chat readiness we only need to know whether indexed content exists.
+    # Counting every distinct source requires scanning all metadata and gets slow
+    # once many PDFs have been embedded, so we keep the workflow check cheap.
+    return 1, total_chunks
+
+
 def ingest_bundled_documents() -> List[DocumentSummary]:
     if not BUNDLED_PDF_DIR.exists():
         raise HTTPException(
@@ -698,10 +711,8 @@ def build_workflow_steps(
 
 
 def build_workflow_status() -> WorkflowStatusResponse:
-    documents = summarize_indexed_documents()
+    indexed_documents, total_chunks = get_index_overview()
     provider = build_provider_status()
-    indexed_documents = len(documents.documents)
-    total_chunks = documents.total_chunks
 
     if indexed_documents == 0:
         next_action = (
