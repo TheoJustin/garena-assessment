@@ -149,6 +149,25 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+def normalize_pinecone_payload(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        payload = to_dict()
+        if isinstance(payload, dict):
+            return payload
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        payload = model_dump()
+        if isinstance(payload, dict):
+            return payload
+
+    return {}
+
+
 def serialize_document_summary(document: DocumentSummary) -> Dict[str, Any]:
     return {
         "source": document.source,
@@ -1270,8 +1289,12 @@ def rag_chat(request: RagRequest) -> RagResponse:
             ),
         ) from exc
 
-    result_payload = search_results.get("result", {}) if isinstance(search_results, dict) else {}
-    hits = result_payload.get("hits", []) if isinstance(result_payload, dict) else []
+    search_payload = normalize_pinecone_payload(search_results)
+    result_payload = normalize_pinecone_payload(search_payload.get("result", {}))
+    hits = result_payload.get("hits", [])
+
+    if not isinstance(hits, list):
+        hits = []
 
     if not hits:
         return RagResponse(
@@ -1284,11 +1307,12 @@ def rag_chat(request: RagRequest) -> RagResponse:
     seen_sources: Set[Tuple[str, int]] = set()
 
     for index_number, hit in enumerate(hits, start=1):
-        if not isinstance(hit, dict):
+        hit_payload = normalize_pinecone_payload(hit)
+        if not hit_payload:
             continue
 
-        fields = hit.get("fields", {})
-        if not isinstance(fields, dict):
+        fields = normalize_pinecone_payload(hit_payload.get("fields", {}))
+        if not fields:
             continue
 
         source = str(fields.get("source", "unknown.pdf"))
