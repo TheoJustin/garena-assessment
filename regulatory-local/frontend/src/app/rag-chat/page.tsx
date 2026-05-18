@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 
 import { ActivityProgress } from '@/components/activity-progress';
-import { WorkflowStatusPanel } from '@/components/workflow-status-panel';
 import { Button } from '@/components/ui/button';
 import {
   BACKEND_URL,
@@ -340,24 +339,28 @@ export default function RagChatPage() {
   };
 
   const workflowReady = isWorkflowReady(workflowStatus);
+  const providerLabel = workflowStatus?.provider.name
+    ? workflowStatus.provider.name.charAt(0).toUpperCase() +
+      workflowStatus.provider.name.slice(1)
+    : 'Provider';
 
   return (
     <div className="min-h-[88vh] px-4 py-6 md:px-6 md:py-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
         <section className="rounded-[2rem] border border-zinc-800 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.08),_rgba(24,24,27,0.92)_45%,_rgba(10,10,12,1)_100%)] p-6 shadow-2xl md:p-8">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div className="max-w-3xl">
               <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-900/70 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.2em] text-zinc-400">
                 <Sparkles className="h-3.5 w-3.5" />
                 Grounded Regulatory Copilot
               </p>
               <h1 className="text-3xl font-semibold tracking-tight text-zinc-50 md:text-4xl">
-                Ask clearer questions and see where the answer came from
+                Ask cleaner questions and get grounded document answers
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400 md:text-[15px]">
-                The chat stays grounded in indexed OJK and BPR/BPRS PDFs. It
-                retrieves local Chroma chunks first, then sends only that context
-                to the configured provider for a business-facing explanation.
+                The chat retrieves local Chroma chunks first, then sends only
+                that context to the configured model for a business-facing
+                explanation.
               </p>
             </div>
 
@@ -365,13 +368,41 @@ export default function RagChatPage() {
               <Button
                 type="button"
                 variant="outline"
+                onClick={() => {
+                  void refreshWorkflow();
+                }}
+                className="h-10 rounded-full border-zinc-700 bg-zinc-950/70 px-4 text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
+              >
+                {isRefreshingWorkflow ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCcw className="mr-2 h-4 w-4" />
+                )}
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
                 onClick={resetConversation}
                 className="h-10 rounded-full border-zinc-700 bg-zinc-950/70 px-4 text-zinc-300 hover:bg-zinc-900 hover:text-zinc-100"
               >
-                <RefreshCcw className="mr-2 h-4 w-4" />
                 Clear chat
               </Button>
             </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1.5 text-xs text-zinc-300">
+              {workflowStatus?.indexed_documents ?? 0} indexed PDF
+              {(workflowStatus?.indexed_documents ?? 0) === 1 ? '' : 's'}
+            </span>
+            <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1.5 text-xs text-zinc-300">
+              {workflowStatus?.total_chunks ?? 0} stored chunk
+              {(workflowStatus?.total_chunks ?? 0) === 1 ? '' : 's'}
+            </span>
+            <span className="rounded-full border border-zinc-800 bg-zinc-950/80 px-3 py-1.5 text-xs text-zinc-300">
+              {providerLabel}: {workflowStatus?.provider.chat_model ?? 'Checking...'}
+            </span>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -388,126 +419,107 @@ export default function RagChatPage() {
           </div>
         </section>
 
-        <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="space-y-4">
-            {isThinking && (
-              <ActivityProgress
-                detail={currentStage.detail}
-                label={currentStage.label}
-                progress={thinkingProgress}
-                status="active"
-              />
-            )}
+        {isThinking && (
+          <ActivityProgress
+            detail={currentStage.detail}
+            label={currentStage.label}
+            progress={thinkingProgress}
+            status="active"
+          />
+        )}
 
-            {!workflowReady && (
-              <div className="rounded-[1.5rem] border border-amber-900/60 bg-amber-950/20 px-5 py-4 text-sm text-amber-100">
-                <p className="font-medium">Workflow not ready yet</p>
-                <p className="mt-2 leading-6">
-                  {workflowStatus?.recommended_next_action ??
-                    'Index at least one PDF and verify the provider before using the chat.'}
+        {workflowError && (
+          <div className="rounded-[1.5rem] border border-red-900/60 bg-red-950/20 px-5 py-4 text-sm text-red-100">
+            <p className="leading-6">{workflowError}</p>
+          </div>
+        )}
+
+        {!workflowReady && (
+          <div className="rounded-[1.5rem] border border-amber-900/60 bg-amber-950/20 px-5 py-4 text-sm text-amber-100">
+            <p className="font-medium">Workflow not ready yet</p>
+            <p className="mt-2 leading-6">
+              {workflowStatus?.recommended_next_action ??
+                'Index at least one PDF and verify the provider before using the chat.'}
+            </p>
+          </div>
+        )}
+
+        <div className="overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-950 shadow-2xl">
+          <div className="border-b border-zinc-800 bg-zinc-950/90 px-6 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">
+                  Regulatory Conversation
+                </h2>
+                <p className="text-sm text-zinc-500">
+                  Answers cite retrieved PDF chunks and avoid freeform guessing.
                 </p>
               </div>
-            )}
-
-            <div className="overflow-hidden rounded-[2rem] border border-zinc-800 bg-zinc-950 shadow-2xl">
-              <div className="border-b border-zinc-800 bg-zinc-950/90 px-6 py-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-medium text-zinc-100">
-                      Regulatory Conversation
-                    </h2>
-                    <p className="text-sm text-zinc-500">
-                      Answers cite retrieved PDF chunks and avoid freeform guessing.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-400">
-                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1">
-                      {messages.length - 1} message
-                      {messages.length - 1 === 1 ? '' : 's'}
-                    </span>
-                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1">
-                      {workflowStatus?.indexed_documents ?? 0} document
-                      {(workflowStatus?.indexed_documents ?? 0) === 1 ? '' : 's'}
-                    </span>
-                    <span className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1">
-                      {workflowStatus?.total_chunks ?? 0} chunks
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="max-h-[62vh] overflow-y-auto bg-[linear-gradient(180deg,rgba(24,24,27,0.65),rgba(10,10,12,0.92))] px-4 py-5 md:px-6">
-                <div className="space-y-5">
-                  {messages.map((message) => (
-                    <ChatBubble key={message.id} message={message} />
-                  ))}
-
-                  {isThinking && (
-                    <div className="flex gap-4">
-                      <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900 text-zinc-300">
-                        <Bot className="h-4 w-4" />
-                      </div>
-                      <div className="inline-flex items-center gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/80 px-5 py-4 text-sm text-zinc-400">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Thinking through the retrieved sections...
-                      </div>
-                    </div>
-                  )}
-
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-
-              <div className="border-t border-zinc-800 bg-zinc-950/95 p-4 md:p-5">
-                <div className="rounded-[1.75rem] border border-zinc-800 bg-zinc-900/70 p-3 shadow-inner">
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
-                        submitCurrentInput();
-                      }
-                    }}
-                    placeholder={
-                      workflowReady
-                        ? 'Ask what changed, what a clause means, or what the operational impact is...'
-                        : 'This composer unlocks once documents are indexed and the provider is reachable.'
-                    }
-                    className="min-h-[92px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-500"
-                    disabled={isThinking || !workflowReady}
-                  />
-
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 px-2 pt-3">
-                    <p className="text-xs leading-5 text-zinc-500">
-                      `Enter` sends. `Shift + Enter` adds a new line.
-                    </p>
-                    <Button
-                      type="button"
-                      onClick={submitCurrentInput}
-                      disabled={!input.trim() || isThinking || !workflowReady}
-                      className="h-11 rounded-full bg-zinc-100 px-5 text-zinc-900 hover:bg-zinc-200"
-                    >
-                      Send
-                      <ArrowUp className="ml-2 h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
+              <div className="rounded-full border border-zinc-800 bg-zinc-900/80 px-3 py-1 text-xs text-zinc-400">
+                {messages.length - 1} message
+                {messages.length - 1 === 1 ? '' : 's'}
               </div>
             </div>
           </div>
 
-          <WorkflowStatusPanel
-            title="Confirm the retrieval and generation path"
-            status={workflowStatus}
-            error={workflowError}
-            isRefreshing={isRefreshingWorkflow}
-            onRefresh={() => {
-              void refreshWorkflow();
-            }}
-            actionHref="/upload"
-            actionLabel="Manage Documents"
-          />
+          <div className="max-h-[62vh] overflow-y-auto bg-[linear-gradient(180deg,rgba(24,24,27,0.65),rgba(10,10,12,0.92))] px-4 py-5 md:px-6">
+            <div className="space-y-5">
+              {messages.map((message) => (
+                <ChatBubble key={message.id} message={message} />
+              ))}
+
+              {isThinking && (
+                <div className="flex gap-4">
+                  <div className="mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-800 bg-zinc-900 text-zinc-300">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                  <div className="inline-flex items-center gap-3 rounded-3xl border border-zinc-800 bg-zinc-950/80 px-5 py-4 text-sm text-zinc-400">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Thinking through the retrieved sections...
+                  </div>
+                </div>
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+          </div>
+
+          <div className="border-t border-zinc-800 bg-zinc-950/95 p-4 md:p-5">
+            <div className="rounded-[1.75rem] border border-zinc-800 bg-zinc-900/70 p-3 shadow-inner">
+              <textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    submitCurrentInput();
+                  }
+                }}
+                placeholder={
+                  workflowReady
+                    ? 'Ask what changed, what a clause means, or what the operational impact is...'
+                    : 'This composer unlocks once documents are indexed and the provider is reachable.'
+                }
+                className="min-h-[92px] w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500 disabled:cursor-not-allowed disabled:text-zinc-500"
+                disabled={isThinking || !workflowReady}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 px-2 pt-3">
+                <p className="text-xs leading-5 text-zinc-500">
+                  `Enter` sends. `Shift + Enter` adds a new line.
+                </p>
+                <Button
+                  type="button"
+                  onClick={submitCurrentInput}
+                  disabled={!input.trim() || isThinking || !workflowReady}
+                  className="h-11 rounded-full bg-zinc-100 px-5 text-zinc-900 hover:bg-zinc-200"
+                >
+                  Send
+                  <ArrowUp className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
