@@ -150,6 +150,7 @@ OLLAMA_CHAT_MODEL=qwen3:8b
 OLLAMA_EMBEDDING_MODEL=embeddinggemma
 NEXT_PUBLIC_BACKEND_URL=http://your-vps-ip:8001
 CORS_ORIGINS=http://localhost:3001,http://127.0.0.1:3001,http://your-vps-ip:3001
+NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS=900000
 ```
 
 Notes:
@@ -158,6 +159,7 @@ Notes:
 - `OLLAMA_API_KEY` is required by OpenAI-compatible clients but ignored by Ollama, so the default `ollama` value is enough unless you place your VPS behind your own auth layer.
 - If you use Docker, do not point `OLLAMA_BASE_URL` to `localhost` unless Ollama is inside the same container. For a VPS, use its reachable host or domain.
 - The chat model and the embedding model both need to exist on the Ollama side. If one is missing, the workflow status panel will flag it and the backend error messages will tell you which `ollama pull` command to run.
+- Large PDFs can take several minutes to embed on a CPU-only Ollama host. Increase `NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS` if the browser times out before indexing finishes.
 
 ### 4. Rebuild and validate
 

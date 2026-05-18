@@ -38,6 +38,19 @@ import {
   type WorkflowStatus,
 } from '@/lib/workflow';
 
+const INDEX_UPLOAD_TIMEOUT_MS = (() => {
+  const parsed = Number.parseInt(
+    process.env.NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS ?? '900000',
+    10,
+  );
+
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 900000;
+  }
+
+  return parsed;
+})();
+
 const UPLOAD_STAGES = [
   {
     threshold: 0,
@@ -181,7 +194,7 @@ function uploadPdf(
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `${BACKEND_URL}/process-pdf`);
     xhr.responseType = 'json';
-    xhr.timeout = 180000;
+    xhr.timeout = INDEX_UPLOAD_TIMEOUT_MS;
 
     xhr.upload.onprogress = (event) => {
       if (!event.lengthComputable) return;
@@ -205,7 +218,7 @@ function uploadPdf(
     xhr.ontimeout = () => {
       reject(
         new Error(
-          'The upload timed out while waiting for indexing to finish. Check the backend logs and provider connectivity.',
+          'The upload timed out while waiting for indexing to finish. Large PDFs on CPU-only Ollama can take several minutes. Increase NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS if needed.',
         ),
       );
     };
