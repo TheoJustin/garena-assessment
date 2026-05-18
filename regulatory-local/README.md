@@ -148,6 +148,8 @@ OLLAMA_BASE_URL=http://your-vps-ip:11434
 OLLAMA_API_KEY=ollama
 OLLAMA_CHAT_MODEL=qwen3:8b
 OLLAMA_EMBEDDING_MODEL=embeddinggemma
+NEXT_PUBLIC_BACKEND_URL=http://your-vps-ip:8001
+CORS_ORIGINS=http://localhost:3001,http://127.0.0.1:3001,http://your-vps-ip:3001
 ```
 
 Notes:

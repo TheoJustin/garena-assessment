@@ -26,6 +26,7 @@ services:
       CHUNK_SIZE: ${CHUNK_SIZE}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP}
       SIMILARITY_TOP_K: ${SIMILARITY_TOP_K}
+      CORS_ORIGINS: ${CORS_ORIGINS}
     volumes:
       - ./backend/chroma_db:/app/chroma_db
       - ./data/pdfs:/app/data/pdfs:ro
@@ -50,12 +51,12 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_BACKEND_URL: http://localhost:8001
+        NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
     container_name: thchat-regulatory-frontend
     restart: unless-stopped
     environment:
       BACKEND_URL: http://backend:8000
-      NEXT_PUBLIC_BACKEND_URL: http://localhost:8001
+      NEXT_PUBLIC_BACKEND_URL: ${NEXT_PUBLIC_BACKEND_URL}
     ports:
       - "3001:3000"
     depends_on:

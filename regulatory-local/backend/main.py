@@ -48,6 +48,14 @@ ANONYMIZED_TELEMETRY = os.getenv("ANONYMIZED_TELEMETRY", "false").lower() == "tr
 CHROMA_PRODUCT_TELEMETRY_IMPL = os.getenv(
     "CHROMA_PRODUCT_TELEMETRY_IMPL", "telemetry.NoOpProductTelemetry"
 )
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3001,http://127.0.0.1:3001,http://frontend:3000",
+    ).split(",")
+    if origin.strip()
+]
 
 CHROMA_PERSIST_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
@@ -55,11 +63,7 @@ app = FastAPI(title="THChat Regulatory Local Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://frontend:3000",
-    ],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
