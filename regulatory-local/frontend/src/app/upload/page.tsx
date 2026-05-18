@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/table';
 import {
   BACKEND_URL,
+  BACKEND_FETCH_TIMEOUT_MS,
   fetchJsonWithTimeout,
   readJsonResponse,
   type WorkflowStatus,
@@ -69,8 +70,8 @@ const UPLOAD_STAGES = [
   },
   {
     threshold: 82,
-    label: 'Indexing in Chroma',
-    detail: 'Embedding chunks and storing them locally.',
+    label: 'Indexing in Pinecone',
+    detail: 'Sending chunks to Pinecone for integrated embedding and storage.',
   },
 ];
 
@@ -92,17 +93,17 @@ const SEED_STAGES = [
   },
   {
     threshold: 82,
-    label: 'Writing local vectors',
-    detail: 'Persisting embeddings to the local Chroma store.',
+    label: 'Writing Pinecone records',
+    detail: 'Embedding text in Pinecone and persisting the records remotely.',
   },
 ];
 
 const WORKFLOW_STEPS = [
   'PDF upload',
   'Chunking',
-  'ChromaDB',
+  'Pinecone',
   'Question',
-  'Ollama',
+  'Chat model',
   'Answer',
 ];
 
@@ -265,22 +266,53 @@ export default function UploadPage() {
     setWorkflowError(null);
 
     try {
-      const [documents, workflow] = await Promise.all([
+      const [documentsResult, workflowResult] = await Promise.allSettled([
         fetchJsonWithTimeout<DocumentsResponse>(
           `${BACKEND_URL}/documents`,
           { cache: 'no-store' },
-          15000,
+          Math.max(BACKEND_FETCH_TIMEOUT_MS, 120000),
         ),
         fetchJsonWithTimeout<WorkflowStatus>(
           `${BACKEND_URL}/workflow-status`,
           { cache: 'no-store' },
-          15000,
         ),
       ]);
 
-      setIndexedDocuments(documents.documents);
-      setTotalChunks(documents.total_chunks);
-      setWorkflowStatus(workflow);
+      const issues: string[] = [];
+
+      if (documentsResult.status === 'fulfilled') {
+        setIndexedDocuments(documentsResult.value.documents);
+        setTotalChunks(documentsResult.value.total_chunks);
+      } else {
+        console.error(
+          'Failed to refresh indexed document summary',
+          documentsResult.reason,
+        );
+        issues.push(
+          documentsResult.reason instanceof Error
+            ? documentsResult.reason.message
+            : 'The indexed document summary is still loading.',
+        );
+      }
+
+      if (workflowResult.status === 'fulfilled') {
+        setWorkflowStatus(workflowResult.value);
+
+        if (documentsResult.status !== 'fulfilled') {
+          setTotalChunks(workflowResult.value.total_chunks);
+        }
+      } else {
+        console.error('Failed to refresh workflow status', workflowResult.reason);
+        issues.push(
+          workflowResult.reason instanceof Error
+            ? workflowResult.reason.message
+            : 'Failed to load workflow status from the backend.',
+        );
+      }
+
+      if (issues.length > 0) {
+        setWorkflowError(issues.join(' '));
+      }
     } catch (error) {
       console.error('Failed to refresh workflow dashboard', error);
       setWorkflowError(
@@ -483,7 +515,7 @@ export default function UploadPage() {
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-400 md:text-[15px]">
                 Keep this page focused on ingestion. Upload a PDF or seed the
-                bundled OJK regulations, write the chunks into local ChromaDB,
+                bundled OJK regulations, write the chunks into Pinecone,
                 then jump into chat when the knowledge base is ready.
               </p>
             </div>
@@ -511,7 +543,7 @@ export default function UploadPage() {
                 <CardDescription className="max-w-2xl text-zinc-400">
                   Add a new PDF or seed the bundled OJK regulations. The backend
                   will extract text, split it into chunks, and store embeddings
-                  locally in ChromaDB.
+                  in Pinecone with integrated inference.
                 </CardDescription>
               </div>
 
@@ -566,7 +598,7 @@ export default function UploadPage() {
                   {workflowStatus?.total_chunks ?? 0}
                 </p>
                 <p className="mt-2 text-sm leading-6 text-zinc-500">
-                  Chunks are what Chroma retrieves before asking the model for an
+                  Chunks are what Pinecone retrieves before asking the model for an
                   explanation.
                 </p>
               </div>
@@ -727,7 +759,7 @@ export default function UploadPage() {
                   </p>
                   <p className="mt-2 max-w-md text-sm leading-6 text-zinc-500">
                     Upload one PDF or seed the bundled OJK set to populate the
-                    local Chroma store.
+                    Pinecone index.
                   </p>
                 </div>
               </div>

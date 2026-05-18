@@ -16,6 +16,7 @@ import { ActivityProgress } from '@/components/activity-progress';
 import { Button } from '@/components/ui/button';
 import {
   BACKEND_URL,
+  BACKEND_FETCH_TIMEOUT_MS,
   fetchJsonWithTimeout,
   isWorkflowReady,
   type WorkflowStatus,
@@ -48,7 +49,7 @@ const CHAT_STAGES = [
   {
     threshold: 0,
     label: 'Retrieving context',
-    detail: 'Finding the most relevant regulatory chunks in Chroma.',
+    detail: 'Finding the most relevant regulatory chunks in Pinecone.',
   },
   {
     threshold: 36,
@@ -214,7 +215,6 @@ export default function RagChatPage() {
       const status = await fetchJsonWithTimeout<WorkflowStatus>(
         `${BACKEND_URL}/workflow-status`,
         { cache: 'no-store' },
-        15000,
       );
       setWorkflowStatus(status);
     } catch (error) {
@@ -308,7 +308,7 @@ export default function RagChatPage() {
           body: JSON.stringify({ message: trimmed }),
           cache: 'no-store',
         },
-        70000,
+        Math.max(BACKEND_FETCH_TIMEOUT_MS, 90000),
       );
 
       appendAssistantMessage(data.response, Array.isArray(data.sources) ? data.sources : []);
@@ -350,7 +350,7 @@ export default function RagChatPage() {
                 Ask cleaner questions and get grounded document answers
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-zinc-400 md:text-[15px]">
-                The chat retrieves local Chroma chunks first, then sends only
+                The chat retrieves Pinecone matches first, then sends only
                 that context to the configured model for a business-facing
                 explanation.
               </p>

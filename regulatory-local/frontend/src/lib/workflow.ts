@@ -1,6 +1,24 @@
 export const BACKEND_URL =
   process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8001';
 
+function readPublicTimeout(
+  rawValue: string | undefined,
+  fallbackValue: number,
+): number {
+  const parsed = Number.parseInt(rawValue ?? '', 10);
+
+  if (!Number.isFinite(parsed) || parsed < 1000) {
+    return fallbackValue;
+  }
+
+  return parsed;
+}
+
+export const BACKEND_FETCH_TIMEOUT_MS = readPublicTimeout(
+  process.env.NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS,
+  120000,
+);
+
 export type WorkflowStepStatus = 'blocked' | 'complete' | 'pending' | 'ready';
 
 export type ProviderStatus = {
@@ -70,7 +88,7 @@ export async function readJsonResponse<T>(
 export async function fetchJsonWithTimeout<T>(
   input: RequestInfo | URL,
   init: RequestInit = {},
-  timeoutMs = 15000,
+  timeoutMs = BACKEND_FETCH_TIMEOUT_MS,
 ): Promise<T> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -86,7 +104,7 @@ export async function fetchJsonWithTimeout<T>(
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         throw new Error(
-          'The backend took too long to respond. If many PDFs are indexed, refresh again or wait a moment.',
+          'The backend is still busy. If Pinecone is syncing many indexed PDFs or the chat provider is under load, wait a moment and refresh again. You can also raise NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS.',
         );
       }
 

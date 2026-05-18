@@ -23,9 +23,9 @@ export default function LandingPage() {
               Turn OJK PDFs into a grounded, readable business workflow
             </h1>
             <p className="max-w-2xl text-lg leading-8 text-zinc-400">
-              This copy of the app ingests regulatory PDFs into local ChromaDB,
-              then uses Ollama or OpenRouter to explain the rules in practical
-              language without relying on Pinecone.
+              This copy of the app chunks regulatory PDFs locally, stores them
+              in Pinecone with integrated embeddings, then uses Ollama or
+              OpenRouter to explain the rules in practical business language.
             </p>
             <div className="mt-2 flex flex-wrap justify-center gap-3">
               <Link href="/upload">
@@ -61,10 +61,10 @@ export default function LandingPage() {
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900">
               <Database className="h-6 w-6 text-zinc-400" />
             </div>
-            <h3 className="mt-4 text-lg font-medium text-zinc-200">2. Chunk Locally</h3>
+            <h3 className="mt-4 text-lg font-medium text-zinc-200">2. Index in Pinecone</h3>
             <p className="mt-2 text-sm leading-6 text-zinc-500">
-              The backend splits pages into retrieval chunks and persists them in
-              the local Chroma store.
+              The backend splits pages into retrieval chunks and sends them to
+              Pinecone for integrated embedding and semantic search.
             </p>
           </div>
 

@@ -3,7 +3,7 @@
 backend/.venv
 backend/.venv39
 backend/__pycache__/
-backend/chroma_db/
+backend/pinecone_state/
 
 frontend/node_modules/
 frontend/.next/

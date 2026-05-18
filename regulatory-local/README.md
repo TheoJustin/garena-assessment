@@ -1,177 +1,139 @@
-# THChat Regulatory Local
+# THChat Regulatory Pinecone
 
-A separate local-first copy of the original app for regulatory and business documents.
+A Pinecone-backed regulatory RAG app for OJK, BPR, and BPRS documents.
 
-This variant changes the architecture in three important ways:
+This copy now uses:
 
-- It uses a local Chroma vector store instead of Pinecone.
-- It uses an OpenAI-compatible API layer for both chat generation and embeddings, so you can swap between OpenRouter and Ollama.
-- It is tuned for regulatory explanation workflows rather than competitor SQL extraction.
+- Pinecone for vector storage and retrieval
+- Pinecone integrated embeddings for faster indexing and search
+- Ollama or OpenRouter only for final answer generation
 
 ## Workflow
 
-The intended operator flow is:
+The intended flow is:
 
 1. `PDF -> text extraction`
 2. `text -> chunks`
-3. `chunks -> local ChromaDB`
-4. `user question -> retrieval`
+3. `chunks -> Pinecone integrated embedding + storage`
+4. `user question -> Pinecone text search`
 5. `retrieved context -> Ollama or OpenRouter`
 6. `grounded answer -> user output`
 
-The frontend now exposes this flow directly through the workflow status panel on both the Upload and Chat pages.
-If something is off, check these endpoints:
+If something feels off, check:
 
 - `GET /health`
 - `GET /workflow-status`
 - `GET /documents`
 
-## What is bundled
+## Bundled PDFs
 
 - `data/pdfs/pojk-2020-62-bank-perkreditan-rakyat-1.pdf`
 - `data/pdfs/pojk-2024-7-bpr-dan-bprs.pdf`
 
-You can ingest those immediately from the Upload page or opt into backend auto-ingest on startup.
-The default is now manual ingestion so the containers become ready faster.
-
-## Model defaults
-
-The default chat model is:
-
-- `nvidia/nemotron-nano-9b-v2:free`
-
-Why this default:
-
-- As of May 18, 2026, OpenRouter lists it as a free model.
-- OpenRouter describes it as a unified reasoning and non-reasoning model with a 128K context window.
-- It is newer than the previous 8B Nemotron pick while still staying in the near-zero-cost range.
-
-The default embedding model is:
-
-- `baai/bge-m3`
-
-Why this default:
-
-- It is multilingual, which fits Indonesian regulatory PDFs better than English-only embeddings.
-- OpenRouter lists it at `$0.01 / 1M` input tokens, which is cheap for local RAG indexing.
-
-If you want a slightly more capable low-cost chat model, try:
-
-- `qwen/qwen3-8b`
+Auto-ingest is off by default so the containers start quickly.
 
 ## Environment
 
-Copy the example file and fill in your provider settings:
+Copy the example file:
 
 ```bash
 cp .env.example .env
 ```
 
-Required for OpenRouter:
+### Required Pinecone settings
 
-- `OPENROUTER_API_KEY`
+- `PINECONE_API_KEY`
+- `PINECONE_INDEX`
+- `PINECONE_HOST`
 
 Useful defaults already included:
 
+- `PINECONE_INDEX=chatbot-komunal`
+- `PINECONE_HOST=chatbot-komunal-rlrsd9x.svc.aped-4627-b74a.pinecone.io`
+- `PINECONE_NAMESPACE=regulatory-local`
+- `PINECONE_TEXT_FIELD=text`
+- `PINECONE_EMBED_MODEL=llama-text-embed-v2`
+
+The current demo index uses Pinecone integrated embeddings with a `text -> text` field map, so the backend sends chunk text directly to Pinecone and does not need a separate embedding model provider.
+
+### Chat provider options
+
+You can keep either:
+
+- `AI_PROVIDER=ollama`
 - `AI_PROVIDER=openrouter`
-- `OPENROUTER_MODEL=nvidia/nemotron-nano-9b-v2:free`
-- `OPENROUTER_EMBEDDING_MODEL=baai/bge-m3`
-- `AUTO_INGEST_BUNDLED_PDFS=false`
-- `CHROMA_PRODUCT_TELEMETRY_IMPL=telemetry.NoOpProductTelemetry`
 
-## Switching to Ollama
-
-This project can now switch between OpenRouter and an Ollama server using env vars only.
-
-### 1. Prepare Ollama on the VPS
-
-Make sure the Ollama service is running and reachable from where this app is running.
-
-If Ollama is on the same Docker host as this project:
-
-- the default `OLLAMA_BASE_URL=http://host.docker.internal:11434` is the easiest option
-- `docker-compose.yml` now maps `host.docker.internal` through `host-gateway`, which helps on modern Linux Docker engines as well as Docker Desktop
-
-If Ollama is on a separate VPS:
-
-- expose Ollama on a reachable host and port
-- for direct access, bind it to `0.0.0.0:11434`
-- if you prefer TLS and auth, place it behind your reverse proxy and point `OLLAMA_BASE_URL` at that URL
-
-Typical Linux/systemd setup idea:
-
-```bash
-sudo systemctl edit ollama
-```
-
-Add:
-
-```ini
-[Service]
-Environment="OLLAMA_HOST=0.0.0.0:11434"
-```
-
-Then reload and restart:
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart ollama
-```
-
-### 2. Pull the models you plan to use
-
-Example:
-
-```bash
-ollama pull qwen3:8b
-ollama pull embeddinggemma
-```
-
-You can verify the server and model list with:
-
-```bash
-curl http://your-vps-ip:11434/api/tags
-```
-
-### 3. Update `.env`
-
-1. Set `AI_PROVIDER=ollama`
-2. Set `OLLAMA_BASE_URL` to your VPS endpoint, for example `http://your-vps-ip:11434`
-3. Set `OLLAMA_CHAT_MODEL`, for example `qwen3:8b`
-4. Set `OLLAMA_EMBEDDING_MODEL`, for example `embeddinggemma`
-
-Example:
+For Ollama, the typical fields are:
 
 ```env
 AI_PROVIDER=ollama
-OLLAMA_BASE_URL=http://your-vps-ip:11434
+OLLAMA_BASE_URL=http://host.docker.internal:11434
 OLLAMA_API_KEY=ollama
-OLLAMA_CHAT_MODEL=qwen3:8b
-OLLAMA_EMBEDDING_MODEL=embeddinggemma
+OLLAMA_CHAT_MODEL=qwen2.5:1.5b-instruct
+```
+
+For OpenRouter, the typical fields are:
+
+```env
+AI_PROVIDER=openrouter
+OPENROUTER_API_KEY=your_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=nvidia/nemotron-nano-9b-v2:free
+```
+
+### Frontend and timeout settings
+
+If you open the frontend from another machine, point it at the public backend URL:
+
+```env
+BACKEND_URL=http://localhost:8001
 NEXT_PUBLIC_BACKEND_URL=http://your-vps-ip:8001
 CORS_ORIGINS=http://localhost:3001,http://127.0.0.1:3001,http://your-vps-ip:3001
+```
+
+Useful timeout and chunk defaults:
+
+```env
+NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS=120000
 NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS=900000
+CHUNK_SIZE=1800
+CHUNK_OVERLAP=100
+SIMILARITY_TOP_K=6
 ```
 
-Notes:
+## Example `.env`
 
-- Ollama's OpenAI-compatible API expects a `/v1` base URL. The backend normalizes this automatically, so `http://your-vps-ip:11434` is fine.
-- `OLLAMA_API_KEY` is required by OpenAI-compatible clients but ignored by Ollama, so the default `ollama` value is enough unless you place your VPS behind your own auth layer.
-- If you use Docker, do not point `OLLAMA_BASE_URL` to `localhost` unless Ollama is inside the same container. For a VPS, use its reachable host or domain.
-- The chat model and the embedding model both need to exist on the Ollama side. If one is missing, the workflow status panel will flag it and the backend error messages will tell you which `ollama pull` command to run.
-- Large PDFs can take several minutes to embed on a CPU-only Ollama host. Increase `NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS` if the browser times out before indexing finishes.
+```env
+AI_PROVIDER=ollama
 
-### 4. Rebuild and validate
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=nvidia/nemotron-nano-9b-v2:free
+OPENROUTER_APP_TITLE=THChat Regulatory Pinecone
+OPENROUTER_HTTP_REFERER=
 
-```bash
-docker compose up --build
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+OLLAMA_API_KEY=ollama
+OLLAMA_CHAT_MODEL=qwen2.5:1.5b-instruct
+
+PINECONE_API_KEY=your_pinecone_key
+PINECONE_INDEX=chatbot-komunal
+PINECONE_HOST=chatbot-komunal-rlrsd9x.svc.aped-4627-b74a.pinecone.io
+PINECONE_NAMESPACE=regulatory-local
+PINECONE_TEXT_FIELD=text
+PINECONE_EMBED_MODEL=llama-text-embed-v2
+
+BACKEND_URL=http://localhost:8001
+NEXT_PUBLIC_BACKEND_URL=http://your-vps-ip:8001
+NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS=120000
+NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS=900000
+CORS_ORIGINS=http://localhost:3001,http://127.0.0.1:3001,http://your-vps-ip:3001
+
+AUTO_INGEST_BUNDLED_PDFS=false
+CHUNK_SIZE=1800
+CHUNK_OVERLAP=100
+SIMILARITY_TOP_K=6
 ```
-
-Then check:
-
-- frontend: [http://localhost:3001](http://localhost:3001)
-- backend workflow status: [http://localhost:8001/workflow-status](http://localhost:8001/workflow-status)
-- backend docs: [http://localhost:8001/docs](http://localhost:8001/docs)
 
 ## Run with Docker
 
@@ -205,34 +167,37 @@ npm install
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8001 npm run dev -- --port 3001
 ```
 
-## Checks
+## Quality checks
 
-Frontend quality checks:
+Frontend:
 
 ```bash
 cd /Users/theo/Documents/Garena/regulatory-local/frontend
 npm run lint
 npm run typecheck
+npm run build
+```
+
+Backend:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/regulatory-local-pyc python3 -m py_compile backend/main.py
 ```
 
 ## Main endpoints
 
-- `POST /process-pdf` uploads and indexes one PDF
-- `POST /ingest-bundled-documents` indexes all bundled PDFs
+- `POST /process-pdf` uploads and indexes one PDF into Pinecone
+- `POST /ingest-bundled-documents` indexes all bundled PDFs into Pinecone
 - `GET /documents` lists indexed files with page and chunk counts
-- `GET /workflow-status` reports whether the full `PDF -> Chroma -> provider -> answer` path is ready
-- `POST /rag-chat` answers questions from retrieved context
+- `GET /workflow-status` reports whether the full `PDF -> Pinecone -> provider -> answer` path is ready
+- `POST /rag-chat` answers questions from retrieved Pinecone context
 
 ## Notes
 
-- The vector store persists to `backend/chroma_db/`.
-- This copy does not depend on PostgreSQL.
-- Re-ingesting the same PDF now skips already-indexed chunks instead of embedding them again.
-- The frontend includes staged loading and progress feedback for uploads, bundled seeding, and answer generation.
-- The copied Next.js app now enables the React Compiler and has a flat ESLint setup for Next.js 16.
-- Chroma anonymized telemetry is disabled by default to avoid noisy local startup logs.
-- The backend root path now returns a simple JSON status instead of a 404.
-- Docker Compose now waits for backend health before starting the frontend.
-- The UI now surfaces provider reachability, indexed chunk counts, and missing-model states directly from `/workflow-status`.
-- For local non-Docker runs, Python 3.11 is the safest choice. Docker is the easiest path if your machine defaults to Python 3.13.
-- Answers are grounded in retrieved chunks and should be treated as document explanations, not legal advice.
+- Vector storage is now remote in Pinecone, not local in Chroma.
+- A small local cache file is still kept at `backend/pinecone_state/documents.json` so the upload page can load quickly even after the index grows.
+- Re-ingesting the same PDF reuses unchanged chunk IDs and only upserts new chunks, while stale chunk IDs for that source are removed.
+- Pinecone is eventually consistent, so the backend waits briefly for namespace counts to settle after each ingest.
+- If the upload dashboard is slow after many PDFs are indexed, increase `NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS`.
+- If a single upload is slow, Pinecone indexing is usually waiting on PDF extraction/chunking or on the remote write, not on a local embedding model.
+- Answers are grounded in retrieved snippets and should be treated as document explanations, not legal advice.
