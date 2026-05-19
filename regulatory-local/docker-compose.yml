@@ -27,6 +27,7 @@ services:
       CHUNK_SIZE: ${CHUNK_SIZE}
       CHUNK_OVERLAP: ${CHUNK_OVERLAP}
       SIMILARITY_TOP_K: ${SIMILARITY_TOP_K}
+      MAX_CONTEXT_CHARS_PER_HIT: ${MAX_CONTEXT_CHARS_PER_HIT}
       CORS_ORIGINS: ${CORS_ORIGINS}
     volumes:
       - ./backend/pinecone_state:/app/pinecone_state

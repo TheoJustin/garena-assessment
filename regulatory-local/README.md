@@ -99,6 +99,7 @@ NEXT_PUBLIC_INDEX_UPLOAD_TIMEOUT_MS=900000
 CHUNK_SIZE=1800
 CHUNK_OVERLAP=100
 SIMILARITY_TOP_K=6
+MAX_CONTEXT_CHARS_PER_HIT=900
 ```
 
 ## Example `.env`
@@ -199,5 +200,6 @@ PYTHONPYCACHEPREFIX=/tmp/regulatory-local-pyc python3 -m py_compile backend/main
 - Re-ingesting the same PDF reuses unchanged chunk IDs and only upserts new chunks, while stale chunk IDs for that source are removed.
 - Pinecone is eventually consistent, so the backend waits briefly for namespace counts to settle after each ingest.
 - If the upload dashboard is slow after many PDFs are indexed, increase `NEXT_PUBLIC_BACKEND_FETCH_TIMEOUT_MS`.
+- If chat generation is still slow on a CPU-only VPS, lower `SIMILARITY_TOP_K` or `MAX_CONTEXT_CHARS_PER_HIT`.
 - If a single upload is slow, Pinecone indexing is usually waiting on PDF extraction/chunking or on the remote write, not on a local embedding model.
 - Answers are grounded in retrieved snippets and should be treated as document explanations, not legal advice.

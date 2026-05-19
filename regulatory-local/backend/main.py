@@ -48,6 +48,7 @@ PINECONE_EMBED_MODEL = os.getenv("PINECONE_EMBED_MODEL", "llama-text-embed-v2")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 SIMILARITY_TOP_K = int(os.getenv("SIMILARITY_TOP_K", "6"))
+MAX_CONTEXT_CHARS_PER_HIT = int(os.getenv("MAX_CONTEXT_CHARS_PER_HIT", "900"))
 AUTO_INGEST_BUNDLED_PDFS = (
     os.getenv("AUTO_INGEST_BUNDLED_PDFS", "false").lower() == "true"
 )
@@ -64,6 +65,12 @@ UPSERT_BATCH_SIZE = 96
 DELETE_BATCH_SIZE = 1000
 FETCH_BATCH_SIZE = 200
 PINECONE_FRESHNESS_TIMEOUT_SECONDS = 20
+PINECONE_NAMESPACE_COUNT_CACHE_SECONDS = float(
+    os.getenv("PINECONE_NAMESPACE_COUNT_CACHE_SECONDS", "30")
+)
+PINECONE_FRESHNESS_POLL_SECONDS = float(
+    os.getenv("PINECONE_FRESHNESS_POLL_SECONDS", "2")
+)
 
 STATE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
@@ -80,6 +87,11 @@ app.add_middleware(
 pinecone_index: Optional[Any] = None
 pinecone_index_lock = Lock()
 document_summary_lock = Lock()
+namespace_count_cache: Dict[str, Any] = {
+    "known": False,
+    "timestamp": 0.0,
+    "value": 0,
+}
 
 
 class DocumentSummary(BaseModel):
@@ -166,6 +178,16 @@ def normalize_pinecone_payload(value: Any) -> Dict[str, Any]:
             return payload
 
     return {}
+
+
+def is_pinecone_rate_limit_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "too many requests" in message
+        or "requests per second limit" in message
+        or '"code":8' in message
+        or "code\":8" in message
+    )
 
 
 def serialize_document_summary(document: DocumentSummary) -> Dict[str, Any]:
@@ -596,33 +618,77 @@ def get_namespace_record_count(index: Any) -> int:
     try:
         payload = index.describe_namespace(namespace=PINECONE_NAMESPACE)
     except NotFoundException:
+        namespace_count_cache["known"] = True
+        namespace_count_cache["timestamp"] = time.time()
+        namespace_count_cache["value"] = 0
         return 0
 
     if isinstance(payload, dict):
-        return max(
+        count = max(
             0,
             safe_int(
                 payload.get("record_count", payload.get("recordCount", 0)),
             ),
         )
+    else:
+        count = max(
+            0,
+            safe_int(
+                getattr(payload, "record_count", getattr(payload, "recordCount", 0))
+            ),
+        )
 
-    return max(
-        0,
-        safe_int(
-            getattr(payload, "record_count", getattr(payload, "recordCount", 0))
-        ),
-    )
+    namespace_count_cache["known"] = True
+    namespace_count_cache["timestamp"] = time.time()
+    namespace_count_cache["value"] = count
+    return count
+
+
+def get_cached_namespace_record_count(
+    index: Any,
+    *,
+    force_refresh: bool = False,
+    allow_stale: bool = True,
+) -> int:
+    now = time.time()
+    if (
+        not force_refresh
+        and namespace_count_cache["known"]
+        and now - float(namespace_count_cache["timestamp"])
+        <= PINECONE_NAMESPACE_COUNT_CACHE_SECONDS
+    ):
+        return max(0, safe_int(namespace_count_cache["value"]))
+
+    try:
+        return get_namespace_record_count(index)
+    except Exception as exc:
+        if allow_stale and namespace_count_cache["known"]:
+            return max(0, safe_int(namespace_count_cache["value"]))
+
+        if allow_stale and is_pinecone_rate_limit_error(exc):
+            cached_documents = read_documents_summary_cache()
+            if cached_documents is not None:
+                namespace_count_cache["known"] = True
+                namespace_count_cache["timestamp"] = now
+                namespace_count_cache["value"] = cached_documents.total_chunks
+                return cached_documents.total_chunks
+
+        raise
 
 
 def wait_for_namespace_record_count(index: Any, expected_count: int) -> int:
     deadline = time.time() + PINECONE_FRESHNESS_TIMEOUT_SECONDS
-    last_seen = get_namespace_record_count(index)
+    last_seen = get_cached_namespace_record_count(index, force_refresh=True, allow_stale=False)
 
     while time.time() < deadline:
         if last_seen == expected_count:
             return last_seen
-        time.sleep(0.5)
-        last_seen = get_namespace_record_count(index)
+        time.sleep(PINECONE_FRESHNESS_POLL_SECONDS)
+        last_seen = get_cached_namespace_record_count(
+            index,
+            force_refresh=True,
+            allow_stale=True,
+        )
 
     return last_seen
 
@@ -630,6 +696,13 @@ def wait_for_namespace_record_count(index: Any, expected_count: int) -> int:
 def batched(items: Sequence[Any], batch_size: int) -> Iterable[Sequence[Any]]:
     for start in range(0, len(items), batch_size):
         yield items[start : start + batch_size]
+
+
+def compact_context_text(text: str, limit: int) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: max(0, limit - 3)].rstrip() + "..."
 
 
 def build_source_prefix(source: str) -> str:
@@ -690,7 +763,7 @@ def upsert_records(index: Any, records: List[Dict[str, Any]]) -> None:
 
 
 def rebuild_documents_summary_from_pinecone(index: Any) -> DocumentsResponse:
-    total_chunks = get_namespace_record_count(index)
+    total_chunks = get_cached_namespace_record_count(index)
     if total_chunks == 0:
         clear_documents_summary_cache()
         return empty_documents_response()
@@ -787,30 +860,30 @@ def write_document_summary_entry(
 
 
 def summarize_indexed_documents() -> DocumentsResponse:
+    cached_documents = read_documents_summary_cache()
+    if cached_documents is not None and cached_documents.total_chunks >= 0:
+        return cached_documents
+
     index = get_pinecone_index()
-    total_chunks = get_namespace_record_count(index)
+    total_chunks = get_cached_namespace_record_count(index)
 
     if total_chunks == 0:
         clear_documents_summary_cache()
         return empty_documents_response()
 
-    cached_documents = read_documents_summary_cache()
-    if cached_documents is not None and cached_documents.total_chunks == total_chunks:
-        return cached_documents
-
     return rebuild_documents_summary_from_pinecone(index)
 
 
 def get_index_overview() -> Tuple[int, int]:
+    cached_documents = read_documents_summary_cache()
+    if cached_documents is not None and cached_documents.total_chunks >= 0:
+        return len(cached_documents.documents), cached_documents.total_chunks
+
     index = get_pinecone_index()
-    total_chunks = get_namespace_record_count(index)
+    total_chunks = get_cached_namespace_record_count(index)
     if total_chunks <= 0:
         clear_documents_summary_cache()
         return 0, 0
-
-    cached_documents = read_documents_summary_cache()
-    if cached_documents is not None and cached_documents.total_chunks == total_chunks:
-        return len(cached_documents.documents), cached_documents.total_chunks
 
     return 1, total_chunks
 
@@ -850,7 +923,11 @@ def ingest_pdf(file_path: Path, source_name: Optional[str] = None) -> DocumentSu
         )
 
     index = get_pinecone_index()
-    namespace_total_before = get_namespace_record_count(index)
+    namespace_total_before = get_cached_namespace_record_count(
+        index,
+        force_refresh=True,
+        allow_stale=True,
+    )
 
     ids = [
         build_chunk_id(
@@ -1130,11 +1207,9 @@ def health() -> Dict[str, object]:
     chat_model = OLLAMA_CHAT_MODEL if AI_PROVIDER == "ollama" else OPENROUTER_MODEL
 
     namespace_count = 0
-    if pinecone_configured:
-        try:
-            namespace_count = get_namespace_record_count(get_pinecone_index())
-        except Exception:
-            namespace_count = 0
+    cached_documents = read_documents_summary_cache()
+    if cached_documents is not None:
+        namespace_count = cached_documents.total_chunks
 
     return {
         "status": "ok",
@@ -1253,9 +1328,15 @@ def rag_chat(request: RagRequest) -> RagResponse:
     if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
+    cached_documents = read_documents_summary_cache()
+    if cached_documents is not None and cached_documents.total_chunks == 0:
+        return RagResponse(
+            response="I couldn't find any indexed regulatory material yet. Upload a PDF or ingest the bundled OJK documents first.",
+            sources=[],
+        )
+
     try:
         index = get_pinecone_index()
-        total_chunks = get_namespace_record_count(index)
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -1265,12 +1346,6 @@ def rag_chat(request: RagRequest) -> RagResponse:
             ),
         ) from exc
 
-    if total_chunks == 0:
-        return RagResponse(
-            response="I couldn't find any indexed regulatory material yet. Upload a PDF or ingest the bundled OJK documents first.",
-            sources=[],
-        )
-
     try:
         search_results = index.search(
             namespace=PINECONE_NAMESPACE,
@@ -1279,6 +1354,11 @@ def rag_chat(request: RagRequest) -> RagResponse:
                 "top_k": SIMILARITY_TOP_K,
             },
             fields=[PINECONE_TEXT_FIELD, "source", "page_number"],
+        )
+    except NotFoundException:
+        return RagResponse(
+            response="I couldn't find any indexed regulatory material yet. Upload a PDF or ingest the bundled OJK documents first.",
+            sources=[],
         )
     except Exception as exc:
         raise HTTPException(
@@ -1322,7 +1402,8 @@ def rag_chat(request: RagRequest) -> RagResponse:
             continue
 
         context_blocks.append(
-            f"[Source {index_number}] {source} (page {page})\n{chunk_text}"
+            f"[Source {index_number}] {source} (page {page})\n"
+            f"{compact_context_text(chunk_text, MAX_CONTEXT_CHARS_PER_HIT)}"
         )
 
         source_key = (source, page)
@@ -1347,6 +1428,8 @@ Rules:
 4. If the user asks about differences or updates, compare only what is explicitly supported by the retrieved context.
 5. Reply in the same language as the user's question.
 6. This is a document-grounded explanation, not legal advice.
+7. Keep the answer compact: aim for 3 to 5 short bullet points or 2 short paragraphs.
+8. Use only the strongest relevant context. Do not restate long excerpts.
 """
     user_prompt = f"""
 Question:
